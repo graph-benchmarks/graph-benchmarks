@@ -1,0 +1,22 @@
+- name: Worker node setup
+  hosts: workers
+  become: true
+  tasks:
+    - name: Install k3s
+      ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }} --write-kubeconfig-mode 644
+
+    - name: Create kube config dir
+      ansible.builtin.file:
+        path: $HOME/.kube
+        state: directory
+        mode: '0755'
+
+    - name: Copy kube config
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: $HOME/.kube/config
+        remote_src: true
+
+    - name: Wait for all k3s nodes to be ready
+      ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s
+      register: nodes_ready
