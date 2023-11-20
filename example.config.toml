@@ -1,0 +1,12 @@
+[setup.platform]
+platform = "vagrant"
+node_configs = [2]
+host_username = "vagrant"
+
+# [setup.pre_configured_platform]
+# private_key_file = "key.pem"
+# ips = ["127.0.0.1", "127.0.0.2"]
+
+[benchmark]
+datasets = ["a", "b", "c"]
+drivers = ["graphscope"]
