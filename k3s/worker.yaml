@@ -1,22 +1,18 @@
 - name: Worker node setup
   hosts: workers
-  become: true
   tasks:
-    - name: Install k3s
-      ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }} --write-kubeconfig-mode 644
+    - name: Check if k3s agent is running
+      ansible.builtin.systemd:
+        name: k3s-agent
+      register: k3s_agent_status
 
-    - name: Create kube config dir
-      ansible.builtin.file:
-        path: $HOME/.kube
-        state: directory
-        mode: '0755'
+    - name: Debug
+      when: (lookup('env', "DEBUG_ANSIBLE") | length) > 0
+      ansible.builtin.debug:
+        msg: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6444 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
 
-    - name: Copy kube config
-      ansible.builtin.copy:
-        src: /etc/rancher/k3s/k3s.yaml
-        dest: $HOME/.kube/config
-        remote_src: true
-
-    - name: Wait for all k3s nodes to be ready
-      ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s
-      register: nodes_ready
+    - name: Once setup
+      when: k3s_agent_status.status.ActiveState != 'active'
+      block:
+        - name: Install k3s
+          ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6444 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}

@@ -8,3 +8,4 @@ Cargo.lock
 terraform.tfstate
 terraform.tfstate.backup
 config.toml
+bin

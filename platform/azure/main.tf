@@ -30,7 +30,7 @@ resource "azurerm_linux_virtual_machine" "graph-benchmarks" {
   location              = azurerm_resource_group.graph-benchmarks.location
   resource_group_name   = azurerm_resource_group.graph-benchmarks.name
   network_interface_ids = [azurerm_network_interface.graph-benchmarks[each.key].id]
-  size                  = "Standard_B2s"
+  size                  = "Standard_B4as_v2"
 
   source_image_reference {
     publisher = "Canonical"

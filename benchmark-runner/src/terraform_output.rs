@@ -9,8 +9,6 @@ pub struct Root {
     pub linux_virtual_machine_ips: LinuxVirtualMachineIps,
     #[serde(rename = "linux_virtual_machine_names")]
     pub linux_virtual_machine_names: LinuxVirtualMachineNames,
-    #[serde(rename = "resource_group_name")]
-    pub resource_group_name: ResourceGroupName,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -38,13 +36,4 @@ pub struct LinuxVirtualMachineNames {
     #[serde(rename = "type")]
     pub type_field: (String, Vec<(String, Vec<String>)>),
     pub value: Vec<Vec<String>>,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ResourceGroupName {
-    pub sensitive: bool,
-    #[serde(rename = "type")]
-    pub type_field: String,
-    pub value: String,
 }

@@ -1,30 +1,39 @@
 - name: Master node setup
   hosts: master
-  become: true
   tasks:
-    - name: Install k3s
-      ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -s - --disable traefik --write-kubeconfig-mode 644 --node-name master --node-external-ip {{ ansible_ssh_host }}
+    - name: Check if k3s is installed
+      ansible.builtin.systemd:
+        name: k3s
+      register: k3s_status
+
+    - name: Once setup
+      when: k3s_status.status.ActiveState != 'active'
+      block:
+        - name: Install k3s
+          ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -s - --disable traefik --write-kubeconfig-mode 644 --node-name master --node-external-ip {{ ansible_ssh_host }}
+
+        - name: Install helm
+          ansible.builtin.shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
     - name: Create kube config dir
       ansible.builtin.file:
         path: $HOME/.kube
         state: directory
-        mode: '0755'
+        mode: 'g+r'
 
     - name: Copy kube config
       ansible.builtin.copy:
         src: /etc/rancher/k3s/k3s.yaml
         dest: $HOME/.kube/config
+        mode: 'g+r'
         remote_src: true
 
     - name: Wait for all k3s nodes to be ready
       ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s
 
     - name: Get kube token
+      become: true
       ansible.builtin.fetch:
         src: /var/lib/rancher/k3s/server/node-token
         dest: node-token
         flat: true
-
-    - name: Install helm
-      ansible.builtin.shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
