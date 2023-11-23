@@ -8,4 +8,12 @@ Cargo.lock
 terraform.tfstate
 terraform.tfstate.backup
 config.toml
-bin
+/bin
+
+# Mac...
+.DS_Store
+
+# Graphs service
+graphs/db_volume
+graphs/results
+graphs/venv
