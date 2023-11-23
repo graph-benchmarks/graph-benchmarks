@@ -6,6 +6,8 @@ services:
     build: ./
     depends_on:
       - benchmarks_db
+    environment:
+      - SELECT_LOG_ID=1
     volumes:
       - ./results:/app/results
       - .:/app
