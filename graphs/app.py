@@ -6,12 +6,11 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 # DB connection & credential variables.
-# TODO: use env variables with updated docker-compose file.
-db_host = "benchmarks_db" 
-db_port = "5432" 
-db_name = "postgres" 
-db_user = "user" 
-db_password = "password"
+db_host = os.environ.get("POSTGRES_HOST")
+db_port = os.environ.get("POSTGRES_PORT")
+db_user = os.environ.get("POSTGRES_USER")
+db_password = os.environ.get("POSTGRES_PASSWORD")
+db_name = os.environ.get("POSTGRES_DB")
 
 # The output path of the generated grap. The eventual file name depends on the
 # provided log id.

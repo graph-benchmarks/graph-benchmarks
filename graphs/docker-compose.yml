@@ -8,6 +8,11 @@ services:
       - benchmarks_db
     environment:
       - SELECT_LOG_ID=1
+      - POSTGRES_HOST=benchmarks_db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=postgres
     volumes:
       - ./results:/app/results
       - .:/app
@@ -20,8 +25,11 @@ services:
     ports:
       - 5432:5432
     environment:
+      - POSTGRES_HOST=benchmarks_db
+      - POSTGRES_PORT=5432
       - POSTGRES_USER=user
       - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=postgres
     volumes:
       # Copy the initialization sql script and optionally exisiting data.
       - ./migrations/bin/init/db-dump.sql:/docker-entrypoint-initdb.d/init.sql
