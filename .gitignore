@@ -17,3 +17,4 @@ config.toml
 graphs/db_volume
 graphs/results
 graphs/venv
+.env
