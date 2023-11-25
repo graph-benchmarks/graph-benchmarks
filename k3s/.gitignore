@@ -1,3 +1,4 @@
 env
 artifacts
 node-token
+kube-config

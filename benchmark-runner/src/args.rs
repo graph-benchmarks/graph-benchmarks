@@ -23,7 +23,7 @@ pub enum Commands {
     /// Run benchmark
     Benchmark(BenchmarkArgs),
     /// Teardown platform & kubernetes
-    Destroy
+    Destroy,
 }
 
 #[derive(Debug, Args)]
@@ -34,5 +34,4 @@ pub struct SetupArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct BenchmarkArgs {
-}
+pub struct BenchmarkArgs {}

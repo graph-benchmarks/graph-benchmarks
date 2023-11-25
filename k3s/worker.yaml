@@ -9,10 +9,11 @@
     - name: Debug
       when: (lookup('env', "DEBUG_ANSIBLE") | length) > 0
       ansible.builtin.debug:
-        msg: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6444 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
+        msg: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
 
     - name: Once setup
       when: k3s_agent_status.status.ActiveState != 'active'
+      become: true
       block:
-        - name: Install k3s
-          ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6444 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
+        - name: Install k3s agent
+          ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}

@@ -1,0 +1,19 @@
+[setup]
+platform = "vagrant"
+node_configs = [3]
+host_username = "vagrant"
+
+[setup.master_platform_env]
+cpu = "8"
+memory = "8192"
+
+[setup.worker_platform_env]
+cpu = "8"
+memory = "8192"
+
+[benchmark]
+datasets = ["a", "b", "c"]
+drivers = ["graphscope"]
+
+[kubernetes]
+dashboard = true
