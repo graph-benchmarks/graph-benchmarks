@@ -1,69 +1,30 @@
 - name: Graphscope helm setup
   hosts: master
   tasks:
-    - name: Wait for apt to unlock
-      become: true
-      shell: while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 5; done;
-
-    - name: Install unzip
-      become: true
-      ansible.builtin.apt:
-        name: python3-pip
-        update_cache: true
-        state: latest
-
-    - name: Install pre-requisites
-      ansible.builtin.pip:
-        name:
-          - kubernetes
-    - name: Add helm repo
-      kubernetes.core.helm_repository:
-        name: graphscope
-        repo_url: https://graphscope.oss-cn-beijing.aliyuncs.com/charts/
-
-    - name: Add helm repo
-      kubernetes.core.helm_repository:
-        name: kubernetes-dashboard
-        repo_url: https://kubernetes.github.io/dashboard/
-
-    - name: Copy chart values
-      ansible.builtin.copy:
-        src: values.yaml
-        dest: $HOME/values.yaml
-        mode: 'g+w'
-
-    - name: Copy chart values
-      ansible.builtin.copy:
-        src: admin-user.yaml
-        dest: $HOME/admin-user.yaml
-        mode: 'g+w'
-
-    - name: Copy chart values
-      ansible.builtin.copy:
-        src: cluster-role-binding.yaml
-        dest: $HOME/cluster-role-binding.yaml
-        mode: 'g+w'
-
-    - name: Install graphscope
-      kubernetes.core.helm:
+    - name: Check if graphscope is installed
+      kubernetes.core.helm_info:
         name: graphscope
         release_namespace: default
-        chart_ref: graphscope/graphscope
+      register: graphscope_status
 
     - name: Install graphscope
-      kubernetes.core.helm:
-        name: kubernetes-dashboard
-        release_namespace: default
-        chart_ref: kubernetes-dashboard/kubernetes-dashboard
+      when: graphscope_status.status.status != 'deployed'
+      block:
+        - name: Add helm repo
+          kubernetes.core.helm_repository:
+            name: kubernetes-dashboard
+            repo_url: https://kubernetes.github.io/dashboard/
 
-    - name: Create a Deployment by reading the definition from a local file
-      kubernetes.core.k8s:
-        state: present
-        apply: true
-        src: admin-user.yaml
+        - name: Copy chart values
+          ansible.builtin.copy:
+            src: values.yaml
+            dest: $HOME/values.yaml
+            mode: 'g+w'
 
-    - name: Create a Deployment by reading the definition from a local file
-      kubernetes.core.k8s:
-        state: present
-        apply: true
-        src: cluster-role-binding.yaml
+        - name: Install graphscope
+          kubernetes.core.helm:
+            name: graphscope
+            release_namespace: default
+            chart_ref: graphscope/graphscope
+            values_files:
+              - values.yaml

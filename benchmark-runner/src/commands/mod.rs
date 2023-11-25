@@ -1,5 +1,3 @@
-pub mod setup;
-pub mod destroy;
 pub mod benchmark;
-mod vagrant_settings;
-mod platform;
+pub mod destroy;
+pub mod setup;

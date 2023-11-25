@@ -12,7 +12,8 @@ cat <<EOF | sudo tee /etc/systemd/resolved.conf.d/dns_servers.conf
 DNS=${DNS_SERVERS}
 EOF
 
-echo "export PATH = \$PATH:/sbin" >> ~/.bashrc
+echo "export PATH=\$PATH:/sbin" >> /home/vagrant/.bashrc
+echo "export HOME=/home/vagrant" >> /home/vagrant/.bashrc
 
 # disable swap
 sudo swapoff -a

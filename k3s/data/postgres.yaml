@@ -1,0 +1,3 @@
+global.postgresql.auth.username: postgres
+global.postgresql.auth.password: graph_benchmarks
+primary.persistence.size: 1Gi
