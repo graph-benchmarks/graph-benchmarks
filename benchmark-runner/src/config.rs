@@ -38,7 +38,7 @@ pub struct KubeSetup {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Benchmark {
     pub drivers: Vec<String>,
-    pub datasets: Option<Vec<String>>,
+    pub datasets: Vec<String>,
     pub algorithms: Option<Vec<String>>,
 }
 

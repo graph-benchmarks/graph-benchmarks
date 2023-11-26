@@ -53,6 +53,7 @@ pub async fn command(
         impl AsRef<str> + std::convert::AsRef<std::ffi::OsStr>,
     >,
 ) -> Result<()> {
+    tracing::info!("{cmd} {args:?}");
     let mut cmd = Command::new(cmd);
     let mut _cmd = cmd.current_dir(dir).args(args);
 

@@ -1,0 +1,12 @@
+- name: Load image
+  hosts: master
+  tasks:
+    - name: Copy image
+      ansible.builtin.copy:
+        src: ../bin/{{ image }}
+        dest: "{{ image }}"
+        mode: 'g+r'
+
+    - name: Load image
+      become: true
+      ansible.builtin.shell: k3s ctr images import {{ image }}

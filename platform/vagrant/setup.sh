@@ -22,5 +22,8 @@ sudo swapoff -a
 (crontab -l 2>/dev/null; echo "@reboot /sbin/swapoff -a") | crontab - || true
 
 cat /home/vagrant/.ssh/me.pub >> /home/vagrant/.ssh/authorized_keys
-sudo apt-get install -y apt-transport-https ca-certificates curl python3
+sudo apt-get install -y apt-transport-https ca-certificates curl python3 cloud-utils
 sudo rm /usr/lib/python3.*/EXTERNALLY-MANAGED
+
+sudo growpart /dev/vda 1
+sudo resize2fs /dev/vda1

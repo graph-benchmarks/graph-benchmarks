@@ -8,7 +8,7 @@
       register: graphscope_status
 
     - name: Install graphscope
-      when: graphscope_status.status.status != 'deployed'
+      when: graphscope_status.status is not defined or graphscope_status.status.status != 'deployed'
       block:
         - name: Add helm repo
           kubernetes.core.helm_repository:
@@ -20,6 +20,23 @@
             src: values.yaml
             dest: $HOME/values.yaml
             mode: 'g+w'
+
+        - name: Install graphscope
+          kubernetes.core.helm:
+            name: graphscope
+            release_namespace: default
+            chart_ref: graphscope/graphscope
+            values_files:
+              - values.yaml
+    - name: ReInstall graphscope
+      when: graphscope_status.status is not defined or graphscope_status.status.status == 'deployed'
+      block:
+        - name: UnInstall graphscope
+          kubernetes.core.helm:
+            name: graphscope
+            release_namespace: default
+            chart_ref: graphscope/graphscope
+            release_state: absent
 
         - name: Install graphscope
           kubernetes.core.helm:

@@ -23,6 +23,7 @@ pub struct Item<'a> {
 async fn setup_master_node(
     connect_args: &PlatformConnectInfo,
     kube_config: Option<config::KubeSetup>,
+    drivers: Vec<String>,
     verbose: bool,
 ) -> Result<()> {
     let master_hosts_file = PathBuf::from("k3s/inventory/master-hosts.yaml");
@@ -69,7 +70,7 @@ async fn setup_master_node(
             "Master node ready",
         ],
         "k3s",
-        env,
+        env.clone(),
     )
     .await?;
 
@@ -79,6 +80,31 @@ async fn setup_master_node(
         &format!("https://{}:6443", connect_args.master_ip),
     );
     fs::write("k3s/kube-config", kube_config).await?;
+
+    // TODO: load metrics & visualization containers
+    for driver in drivers {
+        command(
+            "ansible-playbook",
+            &[
+                "load-image.yaml",
+                "--private-key",
+                &connect_args.private_key_file,
+                "-i",
+                "inventory/master-hosts.yaml",
+                "--extra-vars",
+                &format!("image={driver}.tar")
+            ],
+            verbose,
+            [
+                &format!("Loading {driver} driver into kubernetes"),
+                &format!("Could not load {driver} driver into kubernetes"),
+                &format!("Done loading {driver} driver into kubernetes"),
+            ],
+            "k3s",
+            env.clone(),
+        )
+        .await?;
+    }
     Ok(())
 }
 
@@ -175,7 +201,7 @@ pub async fn setup(args: &SetupArgs, cli: &Cli) -> Result<()> {
     };
     info!("{connect_args:#?}");
 
-    if connect_args.worker_ips.len() < 2 {
+    if connect_args.worker_ips.len() < 1 {
         exit!(
             "Check platform setup output",
             "Need at least two nodes for kubernetes, only got {}",
@@ -183,6 +209,6 @@ pub async fn setup(args: &SetupArgs, cli: &Cli) -> Result<()> {
         );
     }
 
-    setup_master_node(&connect_args, config.kubernetes, cli.verbose).await?;
+    setup_master_node(&connect_args, config.kubernetes, config.benchmark.drivers, cli.verbose).await?;
     setup_worker_node(&connect_args, cli.verbose).await
 }

@@ -21,7 +21,7 @@ Check the [example.config.toml](example.config.toml) for an example configuratio
 ./build.sh
 ```
 3. Run setup
-> You will need to run setup with sudo when using the `vagrant` platform
+> You might need sudo/root access
 ```
 bin/bench setup
 ```

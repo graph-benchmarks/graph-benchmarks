@@ -13,14 +13,10 @@ Vagrant.configure("2") do |config|
   config.vm.provision "file", source: "~/.ssh/id_rsa.pub", destination: "~/.ssh/me.pub"
   config.vm.define "graph_master" do |master|
     master.vm.hostname = "graph-master-node"
-    if settings["shared_folders"]
-      settings["shared_folders"].each do |shared_folder|
-        master.vm.synced_folder shared_folder["host_path"], shared_folder["vm_path"]
-      end
-    end
     master.vm.provider "libvirt" do |vm|
         vm.cpus = settings["nodes"]["control"]["cpu"]
         vm.memory = settings["nodes"]["control"]["memory"]
+        vm.machine_virtual_size = settings["nodes"]["disk_size"]
     end
     master.vm.provision "shell",
       env: {
@@ -33,14 +29,10 @@ Vagrant.configure("2") do |config|
 
     config.vm.define "graph_node0#{i}" do |node|
       node.vm.hostname = "graph-worker-node0#{i}"
-      if settings["shared_folders"]
-        settings["shared_folders"].each do |shared_folder|
-          node.vm.synced_folder shared_folder["host_path"], shared_folder["vm_path"]
-        end
-      end
       node.vm.provider "libvirt" do |vm|
           vm.cpus = settings["nodes"]["workers"]["cpu"]
           vm.memory = settings["nodes"]["workers"]["memory"]
+          vm.machine_virtual_size = settings["nodes"]["disk_size"]
       end
       node.vm.provision "shell",
         env: {

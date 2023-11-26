@@ -3,11 +3,12 @@ network:
   - 8.8.8.8
   - 1.1.1.1
 nodes:
+  disk_size: 30
   control:
     cpu: 8
     memory: 8192
   workers:
-    count: 2
+    count: 1
     cpu: 8
     memory: 8192
 software:

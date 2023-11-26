@@ -2,6 +2,7 @@
   hosts: workers
   tasks:
     - name: Check if k3s agent is running
+      become: true
       ansible.builtin.systemd:
         name: k3s-agent
       register: k3s_agent_status

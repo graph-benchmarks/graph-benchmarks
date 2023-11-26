@@ -26,6 +26,7 @@ pub struct Network {
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Nodes {
+    pub disk_size: usize,
     pub control: Control,
     pub workers: Workers,
 }

@@ -5,11 +5,10 @@ mkdir -p bin || exit -1
 cp target/release/benchmark-runner bin/bench || exit -1
 echo Runner built!
 
-drivers=(graphscope)
-
-for i in "${drivers[@]}"
-do
+while IFS= read -r line || [[ -n "$line" ]]; do
     pushd drivers/$i
     docker build -t $i . || exit -1
     echo $i image built!
-done
+    popd
+    docker save $i -o bin/$i.tar || exit -1
+done < build-drivers
