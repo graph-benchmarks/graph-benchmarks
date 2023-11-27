@@ -1,0 +1,15 @@
+postgres:
+  user: ad
+  ps: password
+  db: test
+  host: localhost
+  port: 5432
+
+graphscope:
+  host:
+  port:
+
+dataset:
+  undirected_test:
+    vertex: ./undirected_test_vertex.csv
+    edges: ./undirected_test_edges.csv
