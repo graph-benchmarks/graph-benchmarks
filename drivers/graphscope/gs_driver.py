@@ -1,74 +1,120 @@
 import sys
 import graphscope as gs
 import psycopg
+import psycopg.sql as sql
 import yaml
 import time
+from graphscope.framework import loader
 
 # functional arguments position for the program
-# id1 id2 workers cpu memory algorithm dataset
-config_yml = sys.argv[1]
+# config_file_path id1 id2 algorithm dataset
 
-# requirements from yaml config file
-# - path to graph files
-# - connection to postgres
-# - connection to graphscope
+config_yml = sys.argv[1]
+_id = int(sys.argv[2])
+_id2 = int(sys.argv[3])
+algo = sys.argv[4]
+dataset = sys.argv[5]
+
 with open(config_yml, 'r') as yml_file:
     configs = yaml.safe_load(yml_file)
 
-dataset = configs["dataset"]
-algo = configs["algo"]
+gs_host = configs["graphscope"]["host"]
+gs_port = configs["graphscope"]["port"]
 
-sess = gs.session(addr=configs["ip"])
+try:
+    sess = gs.session(addr=f"{gs_host}:{gs_port}")
+except:
+    print("Error: could not connect to graphscope cluster")
+    exit()
 g = sess.g()
 
-# connected to postgres database
-conn = psycopg.connect(
-    host=configs["postgres"]["ip"],
-    database=configs["postgres"]["db"],
-    user=configs["postgres"]["user"],
-    password=configs["postgres"]["password"])
+pg_host = configs["postgres"]["host"]
+pg_db = configs["postgres"]["db"]
+pg_port = configs["postgres"]["port"]
+user_ps = configs["postgres"]["ps"]
+pg_user = configs["postgres"]["user"]
 
-def log_metrics_sql(type_:str, time:float)->int:
+try:
+    conn = psycopg.connect(f"postgresql://{pg_user}:{user_ps}@{pg_host}:{pg_port}/{pg_db}")
+except:
+    print("Error: could not connect to postgresql database")
+    exit()
+
+# check if table exists on postgres
+def check_table()->None:
     cur = conn.cursor()
-    sql = """INSERT INTO gn_test(Algo, Dataset, Type, Time) 
-             VALUES(%s) RETURNING ID;"""
-    cur.execute(sql, (algo, dataset, type_, time))
+    query = sql.SQL("SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'gn_test') AS table_existence")
+    ret = cur.execute(query)
+    
+    if not ret.fetchone()[0]:
+        query = sql.SQL("CREATE TABLE gn_test(id INTEGER, algo VARCHAR(256), dataset VARCHAR(256), type VARCHAR(256), time INTEGER)")  
+        cur.execute(query)
+ 
+    conn.commit()       
+    cur.close()
+
+def log_metrics_sql(log_id:int, type_:str, time:float)->None:
+    columns = ["id", "algo", "dataset", "type", "time"]
+    cur = conn.cursor()
+    query = sql.SQL("INSERT INTO gn_test ({}) VALUES ({})").format(
+            sql.SQL(', ').join(map(sql.Identifier, columns)),
+            sql.SQL(', ').join(sql.Placeholder() * len(columns)))
+
+    cur.execute(query, (log_id, algo, dataset, type_, time))
     conn.commit()
     cur.close()
-    return cur.fetchone()
 
-# load the files from volumes
-def load_data():
-    global g
-    start_time = time.time()
+# load vertex, edge files
+def load_data(g: gs.Graph): 
+    vertex_file = configs["dataset"][dataset]["vertex"]
+    edge_file = configs["dataset"][dataset]["edges"] 
     
-    vertex_file = configs["dataset"][dataset] + "_v"
-    edge_file = configs["dataset"][dataset] + "_e"
+    v = loader.Loader(f"file://{vertex_file}", header_row=False)
+    e = loader.Loader(f"file://{edge_file}", header_row=False)
 
-    g = g.add_vertices(vertex_file, 'vertex')
-    g = g.add_edges(edge_file, 'edges')
-
+    start_time = time.time()
+    g = g.add_vertices(v, 'vertex')
+    g = g.add_edges(e, 'edges')
     end_time = time.time()
+
     duration = end_time - start_time
-    log_metrics_sql("loading", duration)
+    log_metrics_sql(_id, "loading", duration)
 
-algos = {
-    "bfs": lambda: gs.bfs(g),
-    "pr": lambda: gs.pagerank(g),
-    "wcc": lambda: gs.wcc(g),
-    "cdlp": lambda: gs.lpa(g),
-    "lcc": lambda: gs.avg_clustering(g),
-    "sssp": lambda: gs.sssp(g),
-}
 
-load_data()
+def bfs(g):
+    gs.bfs(g)
+ 
+def pr(g):
+    # figure out what max round is?
+    gs.pagerank(g)
+
+# weakly connected components
+def wcc(g):
+    gs.wcc(g)
+
+# community detection using label propagation
+def cdlp(g):
+    gs.lpa(g)
+
+# local cluster coefficient
+def lcc(g):
+    gs.avg_clustering(g)
+
+# single source shortest paths
+def sssp(g):
+    gs.sssp(g)
+
+check_table()
+load_data(g)
+
+func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
+
 start_time = time.time()
-algos[algo]()
+func_d[algo](g)
 end_time = time.time()
+
 duration = end_time - start_time
-id = log_metrics_sql("runtime", duration)
-with open(configs["output_path"], 'w') as file:
-    yaml.dump({ "id": id }, file)
+log_metrics_sql(_id2, "runtime", duration)
 
 sess.close()
 conn.close()
