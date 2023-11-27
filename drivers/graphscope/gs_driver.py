@@ -106,8 +106,7 @@ def sssp(g):
 
 check_table()
 load_data(g)
-
-func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc}
+func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
 
 start_time = time.time()
 func_d[algo](g)
