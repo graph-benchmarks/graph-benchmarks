@@ -37,7 +37,7 @@ pub async fn command_platform(
         args,
         verbose,
         msgs,
-        &format!("platform/{platform}"),
+        &format!("platforms/{platform}"),
         HashMap::<String, String>::new(),
     )
     .await

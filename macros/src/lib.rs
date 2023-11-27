@@ -1,5 +1,4 @@
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as Ts;
 use quote::{format_ident, quote};
 use serde::Deserialize;
 

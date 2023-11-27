@@ -4,6 +4,7 @@ network:
   - 1.1.1.1
 nodes:
   disk_size: 30
+  storage_pool_name: "storage_pool"
   control:
     cpu: 8
     memory: 8192

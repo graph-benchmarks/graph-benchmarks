@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr};
+use std::{net::{IpAddr, Ipv4Addr}, path::Path};
 
 use anyhow::Result;
 use common::{provider::*, config::{SetupArgs, self}, command::command_platform, exit};
@@ -25,6 +25,7 @@ pub struct Nodes {
     pub disk_size: usize,
     pub control: Control,
     pub workers: Workers,
+    pub storage_pool_name: String
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -75,10 +76,6 @@ impl Platform for Vagrant {
         }
         settings.nodes.workers.count =
             setup_args.node_configs.iter().max().unwrap().to_owned() - 1;
-        std::fs::write(
-            "platforms/vagrant/settings.yaml",
-            serde_yaml::to_string(&settings)?,
-        )?;
 
         if let Some(args) = &setup_args.platform_args {
             if args.contains_key("storage_pool_path") {
@@ -118,8 +115,14 @@ impl Platform for Vagrant {
                     &setup_args.platform,
                 )
                 .await;
+                settings.nodes.storage_pool_name = Path::new(args.get("storage_pool_path").unwrap()).file_name().unwrap().to_str().unwrap().to_owned()
             }
         }
+
+        std::fs::write(
+            "platforms/vagrant/settings.yaml",
+            serde_yaml::to_string(&settings)?,
+        )?;
 
         Ok(())
     }

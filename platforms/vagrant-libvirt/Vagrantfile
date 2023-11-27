@@ -9,6 +9,11 @@ Vagrant.configure("2") do |config|
   else
     config.vm.box = settings["software"]["box"]
   end
+
+  config.vm.provider :libvirt do |libvirt|
+    libvirt.storage_pool_name = settings["nodes"]["storage_pool_name"]
+  end
+
   config.vm.box_check_update = true
   config.vm.provision "file", source: "~/.ssh/id_rsa.pub", destination: "~/.ssh/me.pub"
   config.vm.synced_folder '.', '/vagrant', disabled: true
