@@ -1,23 +1,29 @@
-use std::{collections::HashMap, env, time::Instant};
+use std::{
+    collections::{BTreeMap, HashMap},
+    env,
+    time::Instant,
+};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
+use common::{config::parse_config, exit, provider::PlatformInfo, command::{command, progress, finish_progress}};
 use futures_util::{StreamExt, TryStreamExt};
-use k8s_openapi::api::core::v1::Pod;
+use k8s_openapi::{
+    api::core::v1::{
+        ConfigMap, ConfigMapVolumeSource, Container, HostPathVolumeSource, PersistentVolume,
+        PersistentVolumeClaim, PersistentVolumeClaimSpec, PersistentVolumeClaimVolumeSource,
+        PersistentVolumeSpec, Pod, PodSpec, ResourceRequirements, Volume, VolumeMount,
+    },
+    apimachinery::pkg::api::resource::Quantity,
+};
 use kube::{
-    api::ListParams,
+    api::{DeleteParams, ListParams, PostParams},
     runtime::{watcher, WatchStreamExt},
     Api, Client, ResourceExt,
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::{
-    args::Cli,
-    common::{command, finish_progress, progress},
-    config::parse_config,
-    driver_config, exit,
-    platforms::{PlatformInfo, PLATFORMS},
-};
+use crate::args::Cli;
 
 const ALGORITHMS: &[&str] = &["bfs", "pr", "wcc", "cdlp", "lcc", "sssp"];
 
@@ -35,44 +41,59 @@ struct PostgresConfig {
     ip: String,
     db: String,
     user: String,
-    password: String
+    password: String,
 }
 
 pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     let mut config = parse_config(&cli.file)?;
 
     let connect_args = 'p: {
-        for p in PLATFORMS {
-            if p.name() == config.setup.platform {
+        for p in base_provider::PROVIDERS {
+            if p.name() == config.setup.provider {
                 break 'p p.platform_info(&config.setup, cli.verbose).await?;
             }
         }
         exit!("", "Unknown platform {}", config.setup.platform)
     };
 
+    setup_pv_and_pvc().await?;
+
     config.setup.node_configs.sort_by(|a, b| b.cmp(a));
     for n_nodes in config.setup.node_configs {
         for driver in &config.benchmark.drivers {
-            let driver_config = match driver_config::get_driver_config(driver) {
+            let driver_config = match base_driver::get_driver_config(driver) {
                 Some(d) => d,
-                None => exit!("", "Could not find driver {}", driver)
+                None => exit!("", "Could not find driver {}", driver),
             };
 
             setup_driver(&driver, &connect_args, cli.verbose).await?;
             let service_ip = driver_config.get_service_ip().await?;
             let mut cfg = DriverConfig {
-                postgres: PostgresConfig { ip: "postgres".to_owned(), db: "postgres".to_owned(), user: "postgres".to_owned(), password: "graph_benchmarks".to_owned() },
+                postgres: PostgresConfig {
+                    ip: "postgres".to_owned(),
+                    db: "postgres".to_owned(),
+                    user: "postgres".to_owned(),
+                    password: "graph_benchmarks".to_owned(),
+                },
                 ip: service_ip,
                 dataset: "".into(),
-                output_path: "/output".into(),
+                output_path: "/attached".into(),
                 algo: "".into(),
             };
-            
+
             for dataset in &config.benchmark.datasets {
-                for algorithm in config.benchmark.algorithms.as_ref().unwrap_or(&ALGORITHMS.iter().map(|x| x.to_string()).collect::<Vec<String>>()) {
+                for algorithm in config.benchmark.algorithms.as_ref().unwrap_or(
+                    &ALGORITHMS
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<String>>(),
+                ) {
                     cfg.dataset = dataset.clone();
                     cfg.algo = algorithm.clone();
                     info!("{cfg:#?}");
+
+                    let bench_pod = start_bench(&cfg).await?;
+                    return Ok(());
                 }
             }
         }
@@ -107,8 +128,6 @@ async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) ->
     )
     .await?;
 
-    env::set_var("KUBECONFIG", "k3s/kube-config");    
-
     let start = Instant::now();
     let pb = progress(&format!("Waiting for {name} to be ready"));
     let client = Client::try_default().await?;
@@ -125,13 +144,12 @@ async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) ->
         false
     };
 
-    let pod_label = driver_config::get_driver_config(name).unwrap().pod_ready_label();
+    let pod_label = base_driver::get_driver_config(name)
+        .unwrap()
+        .pod_ready_label();
 
     let pods: Api<Pod> = Api::default_namespaced(client.clone());
-    if let Ok(pod_list) = pods
-        .list(&ListParams::default().labels(pod_label))
-        .await
-    {
+    if let Ok(pod_list) = pods.list(&ListParams::default().labels(pod_label)).await {
         for pod in pod_list.items {
             ready = status_check(pod);
             if ready {
@@ -147,7 +165,7 @@ async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) ->
         let mut res = watcher(api, wc).applied_objects().default_backoff().boxed();
 
         while let Ok(Some(p)) = res.try_next().await {
-            info!("got status update {} {:#?}", p.name_any(), p.status);
+            info!("got status update {}", p.name_any());
             if status_check(p) {
                 break;
             }
@@ -160,5 +178,150 @@ async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) ->
         start.elapsed(),
         Some(pb),
     );
+    Ok(())
+}
+
+async fn start_bench(cfg: &DriverConfig) -> Result<Pod> {
+    let client = Client::try_default().await?;
+
+    let default_pp = PostParams {
+        dry_run: false,
+        field_manager: None,
+    };
+
+    let config_map: Api<ConfigMap> = Api::default_namespaced(client.clone());
+    _ = config_map
+        .delete("benchmark-cfg", &DeleteParams::default())
+        .await;
+
+    let mut config_map_spec = ConfigMap::default();
+    config_map_spec.metadata.name = Some("benchmark-cfg".into());
+    config_map_spec.data = Some(BTreeMap::from([(
+        "config.yaml".into(),
+        serde_yaml::to_string(&cfg)?,
+    )]));
+    config_map_spec.immutable = Some(true);
+    config_map.create(&default_pp, &config_map_spec).await?;
+
+    let pods: Api<Pod> = Api::default_namespaced(client);
+    let mut dp = DeleteParams::default();
+    dp.grace_period_seconds = Some(0);
+    _ = pods.delete("graphscope-bench", &dp).await;
+
+    let mut pod_spec = Pod::default();
+    pod_spec.metadata.name = Some("graphscope-bench".into());
+    pod_spec.spec = Some(PodSpec {
+        containers: vec![Container {
+            args: Some(vec!["/cfg/config.yaml".into()]),
+            image: Some("registry.pub.348575.xyz:5000/graphscope/bench".into()),
+            // image_pull_policy: Some("Never".into()),
+            name: "graphscope-bench".into(),
+            volume_mounts: Some(vec![
+                VolumeMount {
+                    mount_path: "/attached".into(),
+                    name: "benchmark-pvc".into(),
+                    ..VolumeMount::default()
+                },
+                VolumeMount {
+                    name: "benchmark-cfg".into(),
+                    mount_path: "/cfg".into(),
+                    read_only: Some(true),
+                    ..VolumeMount::default()
+                },
+            ]),
+            ..Container::default()
+        }],
+        volumes: Some(vec![
+            Volume {
+                name: "benchmark-pvc".into(),
+                persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
+                    claim_name: "benchmark-pvc".into(),
+                    read_only: Some(false),
+                }),
+                ..Volume::default()
+            },
+            Volume {
+                name: "benchmark-cfg".into(),
+                config_map: Some(ConfigMapVolumeSource {
+                    name: Some("benchmark-cfg".into()),
+                    ..ConfigMapVolumeSource::default()
+                }),
+                ..Volume::default()
+            },
+        ]),
+        ..PodSpec::default()
+    });
+
+    Ok(pods.create(&default_pp, &pod_spec).await?)
+}
+
+async fn setup_pv_and_pvc() -> Result<()> {
+    env::set_var("KUBECONFIG", "k3s/kube-config");
+
+    let default_pp = PostParams {
+        dry_run: false,
+        field_manager: None,
+    };
+
+    let client = Client::try_default().await?;
+    let pv: Api<PersistentVolume> = Api::all(client.clone());
+    let mut pv_spec = PersistentVolume::default();
+    pv_spec.metadata.name = Some("benchmark-pv".into());
+    pv_spec.metadata.labels = Some(BTreeMap::from([("type".into(), "local".into())]));
+    pv_spec.spec = Some(PersistentVolumeSpec {
+        access_modes: Some(vec!["ReadWriteOnce".into()]),
+        capacity: Some(BTreeMap::from([(
+            "storage".into(),
+            Quantity("10Gi".into()),
+        )])),
+        host_path: Some(HostPathVolumeSource {
+            path: "/benchmark-pv".into(),
+            type_: None,
+        }),
+        storage_class_name: Some("manual".into()),
+        ..PersistentVolumeSpec::default()
+    });
+
+    if let Err(err) = pv.create(&default_pp, &pv_spec).await {
+        match err {
+            kube::Error::Api(ref api_error) => {
+                if api_error.code != 409 {
+                    bail!(err);
+                } else {
+                    info!("PV already exists, not creating");
+                }
+            }
+            _ => bail!(err),
+        }
+    }
+
+    let pvc: Api<PersistentVolumeClaim> = Api::default_namespaced(client);
+    let mut pvc_spec = PersistentVolumeClaim::default();
+    pvc_spec.metadata.name = Some("benchmark-pvc".into());
+    pvc_spec.spec = Some(PersistentVolumeClaimSpec {
+        access_modes: Some(vec!["ReadWriteOnce".into()]),
+        resources: Some(ResourceRequirements {
+            requests: Some(BTreeMap::from([(
+                "storage".into(),
+                Quantity("10Gi".into()),
+            )])),
+            ..Default::default()
+        }),
+        storage_class_name: Some("manual".into()),
+        ..PersistentVolumeClaimSpec::default()
+    });
+
+    if let Err(err) = pvc.create(&default_pp, &pvc_spec).await {
+        match err {
+            kube::Error::Api(ref api_error) => {
+                if api_error.code != 409 {
+                    bail!(err);
+                } else {
+                    info!("PVC already exists, not creating");
+                }
+            }
+            _ => bail!(err),
+        }
+    }
     Ok(())
 }

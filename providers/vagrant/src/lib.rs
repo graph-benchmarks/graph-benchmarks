@@ -1,15 +1,12 @@
 use std::net::{IpAddr, Ipv4Addr};
 
 use anyhow::Result;
+use common::{provider::*, config::{SetupArgs, self}, command::command_platform, exit};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
-use crate::{common::command_platform, config::PlatformArgs, exit};
-
-use super::{Platform, PlatformInfo, DESTROY, SETUP};
-
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct Root {
     pub network: Network,
     pub nodes: Nodes,
@@ -17,14 +14,13 @@ pub struct Root {
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct Network {
-    #[serde(rename = "dns_servers")]
     pub dns_servers: Vec<String>,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct Nodes {
     pub disk_size: usize,
     pub control: Control,
@@ -32,14 +28,14 @@ pub struct Nodes {
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct Control {
     pub cpu: usize,
     pub memory: usize,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct Workers {
     pub count: usize,
     pub cpu: usize,
@@ -47,7 +43,7 @@ pub struct Workers {
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "snake_case")]
 pub struct Software {
     #[serde(rename = "box")]
     pub box_field: String,
@@ -57,10 +53,10 @@ pub struct Vagrant;
 
 #[async_trait::async_trait]
 impl Platform for Vagrant {
-    async fn pre_setup(&self, platform_args: &PlatformArgs, _: bool) -> Result<()> {
+    async fn pre_setup(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()> {
         let mut settings: Root =
-            serde_yaml::from_str(&fs::read_to_string("platform/vagrant/settings.yaml").await?)?;
-        if let Some(m) = &platform_args.master_platform_env {
+            serde_yaml::from_str(&fs::read_to_string("platforms/vagrant/settings.yaml").await?)?;
+        if let Some(m) = &setup_args.master_platform {
             if m.contains_key("cpu") {
                 settings.nodes.control.cpu = m.get("cpu").unwrap().parse()?;
             }
@@ -69,7 +65,7 @@ impl Platform for Vagrant {
             }
         }
 
-        if let Some(m) = &platform_args.worker_platform_env {
+        if let Some(m) = &setup_args.worker_platform {
             if m.contains_key("cpu") {
                 settings.nodes.workers.cpu = m.get("cpu").unwrap().parse()?;
             }
@@ -78,20 +74,62 @@ impl Platform for Vagrant {
             }
         }
         settings.nodes.workers.count =
-            platform_args.node_configs.iter().max().unwrap().to_owned() - 1;
+            setup_args.node_configs.iter().max().unwrap().to_owned() - 1;
         std::fs::write(
-            "platform/vagrant/settings.yaml",
+            "platforms/vagrant/settings.yaml",
             serde_yaml::to_string(&settings)?,
         )?;
+
+        if let Some(args) = &setup_args.platform_args {
+            if args.contains_key("storage_pool_path") {
+                _ = command_platform(
+                    "virsh",
+                    &[
+                        "pool-define-as",
+                        "graph_storage_pool",
+                        "--type",
+                        "dir",
+                        "--target",
+                        args.get("storage_pool_path").unwrap(),
+                    ],
+                    verbose,
+                    [
+                        "Creating storage pool",
+                        "Could not create storage pool",
+                        "Storage pool created",
+                    ],
+                    &setup_args.platform,
+                )
+                .await;
+
+                _ = command_platform(
+                    "virsh",
+                    &[
+                        "pool-start",
+                        "--build",
+                        "graph_storage_pool"
+                    ],
+                    verbose,
+                    [
+                        "Starting storage pool",
+                        "Could not create storage pool",
+                        "Storage pool started",
+                    ],
+                    &setup_args.platform,
+                )
+                .await;
+            }
+        }
+
         Ok(())
     }
 
-    async fn setup(&self, _: &crate::config::PlatformArgs, verbose: bool) -> Result<()> {
-        command_platform("vagrant", &["up"], verbose, SETUP, &self.name()).await
+    async fn setup(&self, setup_args: &config::SetupArgs, verbose: bool) -> Result<()> {
+        command_platform("vagrant", &["up"], verbose, SETUP, &setup_args.platform).await
     }
 
-    async fn platform_info(&self, _: &PlatformArgs, _: bool) -> Result<PlatformInfo> {
-        let conn = virt::connect::Connect::open("qemu:///session")?;
+    async fn platform_info(&self, _: &SetupArgs, _: bool) -> Result<PlatformInfo> {
+        let conn = virt::connect::Connect::open("qemu:///system")?;
         let mut worker_ips: Vec<IpAddr> = Vec::new();
         let mut master_ip: IpAddr = "0.0.0.0".parse().unwrap();
         let domains = conn.list_all_domains(virt::sys::VIR_CONNECT_LIST_DOMAINS_ACTIVE)?;
@@ -127,20 +165,20 @@ impl Platform for Vagrant {
         }
 
         let home = home::home_dir().unwrap();
-        Ok(super::PlatformInfo {
+        Ok(PlatformInfo {
             worker_ips,
             master_ip,
             ssh_key: home.join(".ssh/id_rsa").to_str().unwrap().to_owned(),
         })
     }
 
-    async fn destroy(&self, verbose: bool) -> Result<()> {
+    async fn destroy(&self, setup_args: &config::SetupArgs, verbose: bool) -> Result<()> {
         command_platform(
             "vagrant",
             &["destroy", "-f"],
             verbose,
             DESTROY,
-            &self.name(),
+            &setup_args.platform,
         )
         .await
     }

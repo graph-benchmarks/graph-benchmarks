@@ -7,20 +7,6 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 mod args;
 mod commands;
-mod common;
-mod config;
-mod driver_config;
-mod platforms;
-
-#[macro_export]
-macro_rules! exit {
-    ($err:expr, $($arg:tt)*) => {
-        {
-            tracing::error!($($arg)*);
-            anyhow::bail!($err)
-        }
-    };
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -38,6 +24,7 @@ async fn main() -> Result<()> {
         Commands::Setup(setup) => commands::setup::setup(setup, &args).await,
         Commands::Benchmark(_) => commands::benchmark::run_benchmark(&args).await,
         Commands::Destroy => commands::destroy::destroy(&args).await,
+        Commands::Ls => commands::ls::list(&args).await,
     }?;
 
     Ok(())

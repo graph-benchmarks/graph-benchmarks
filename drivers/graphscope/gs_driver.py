@@ -15,6 +15,8 @@ config_yml = sys.argv[1]
 with open(config_yml, 'r') as yml_file:
     configs = yaml.safe_load(yml_file)
 
+print("config file loaded")
+
 dataset = configs["dataset"]
 algo = configs["algo"]
 

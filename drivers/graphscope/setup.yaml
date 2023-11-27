@@ -1,47 +1,28 @@
 - name: Graphscope helm setup
   hosts: master
   tasks:
-    - name: Check if graphscope is installed
-      kubernetes.core.helm_info:
+    - name: Add helm repo
+      kubernetes.core.helm_repository:
+        name: kubernetes-dashboard
+        repo_url: https://kubernetes.github.io/dashboard/
+
+    - name: UnInstall graphscope
+      kubernetes.core.helm:
         name: graphscope
         release_namespace: default
-      register: graphscope_status
+        chart_ref: graphscope/graphscope
+        release_state: absent
+
+    - name: Copy chart values
+      ansible.builtin.copy:
+        src: values.yaml
+        dest: $HOME/values.yaml
+        mode: 'g+w'
 
     - name: Install graphscope
-      when: graphscope_status.status is not defined or graphscope_status.status.status != 'deployed'
-      block:
-        - name: Add helm repo
-          kubernetes.core.helm_repository:
-            name: kubernetes-dashboard
-            repo_url: https://kubernetes.github.io/dashboard/
-
-        - name: Copy chart values
-          ansible.builtin.copy:
-            src: values.yaml
-            dest: $HOME/values.yaml
-            mode: 'g+w'
-
-        - name: Install graphscope
-          kubernetes.core.helm:
-            name: graphscope
-            release_namespace: default
-            chart_ref: graphscope/graphscope
-            values_files:
-              - values.yaml
-    - name: ReInstall graphscope
-      when: graphscope_status.status is not defined or graphscope_status.status.status == 'deployed'
-      block:
-        - name: UnInstall graphscope
-          kubernetes.core.helm:
-            name: graphscope
-            release_namespace: default
-            chart_ref: graphscope/graphscope
-            release_state: absent
-
-        - name: Install graphscope
-          kubernetes.core.helm:
-            name: graphscope
-            release_namespace: default
-            chart_ref: graphscope/graphscope
-            values_files:
-              - values.yaml
+      kubernetes.core.helm:
+        name: graphscope
+        release_namespace: default
+        chart_ref: graphscope/graphscope
+        values_files:
+          - values.yaml

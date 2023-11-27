@@ -1,5 +1,6 @@
 [setup]
-platform = "vagrant"
+provider = "vagrant"
+platform = "vagrant-libvirt"
 node_configs = [3]
 host_username = "vagrant"
 
