@@ -5,12 +5,13 @@ use serde::Deserialize;
 #[derive(Deserialize)]
 struct BuildConfig {
     drivers: Vec<String>,
-    providers: Vec<String>
+    providers: Vec<String>,
 }
 
 #[proc_macro]
 pub fn include_drivers(_: TokenStream) -> TokenStream {
-    let config: BuildConfig = toml::from_str(&std::fs::read_to_string("build.config.toml").unwrap()).unwrap();
+    let config: BuildConfig =
+        toml::from_str(&std::fs::read_to_string("build.config.toml").unwrap()).unwrap();
     let mut drivers = Vec::new();
     let mut drivers_caps = Vec::new();
 
@@ -28,14 +29,16 @@ pub fn include_drivers(_: TokenStream) -> TokenStream {
         drivers_caps.push(d_name_caps);
     }
 
-    quote !{
+    quote! {
         pub const DRIVER_CONFIGS: &[&'static dyn DriverConfig] = &[#(&#drivers::#drivers_caps,)*];
-    }.into()
+    }
+    .into()
 }
 
 #[proc_macro]
 pub fn include_providers(_: TokenStream) -> TokenStream {
-    let config: BuildConfig = toml::from_str(&std::fs::read_to_string("build.config.toml").unwrap()).unwrap();
+    let config: BuildConfig =
+        toml::from_str(&std::fs::read_to_string("build.config.toml").unwrap()).unwrap();
     let mut provider = Vec::new();
     let mut provider_caps = Vec::new();
 
@@ -53,7 +56,8 @@ pub fn include_providers(_: TokenStream) -> TokenStream {
         provider_caps.push(p_name_caps);
     }
 
-    quote !{
+    quote! {
         pub const PROVIDERS: &[&'static dyn Platform] = &[#(&#provider::#provider_caps,)*];
-    }.into()
+    }
+    .into()
 }

@@ -1,6 +1,6 @@
-use common::driver_config::DriverConfig;
-use kube::{Client, Api};
 use anyhow::Result;
+use common::driver_config::DriverConfig;
+use kube::{Api, Client};
 
 pub struct Graphscope;
 
@@ -14,7 +14,10 @@ impl DriverConfig for Graphscope {
         let client = Client::try_default().await?;
         let services: Api<k8s_openapi::api::core::v1::Service> = Api::default_namespaced(client);
         let coordinator = services.get("coordinator-service-graphscope").await?;
-        Ok(format!("coordinator-service-graphscope:{}", coordinator.spec.unwrap().ports.unwrap()[0].port))
+        Ok(format!(
+            "coordinator-service-graphscope:{}",
+            coordinator.spec.unwrap().ports.unwrap()[0].port
+        ))
     }
 
     fn pod_ready_label(&self) -> &'static str {

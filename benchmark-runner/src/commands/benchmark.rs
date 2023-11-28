@@ -5,7 +5,12 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use common::{config::parse_config, exit, provider::PlatformInfo, command::{command, progress, finish_progress}};
+use common::{
+    command::{command, finish_progress, progress},
+    config::parse_config,
+    exit,
+    provider::PlatformInfo,
+};
 use futures_util::{StreamExt, TryStreamExt};
 use k8s_openapi::{
     api::core::v1::{

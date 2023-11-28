@@ -1,7 +1,14 @@
-use std::{collections::HashMap, path::{PathBuf, Path}};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{bail, Result};
-use common::{config::{PlatformConnectInfo, KubeSetup, SetupArgs, parse_config}, command::command, exit};
+use common::{
+    command::command,
+    config::{parse_config, KubeSetup, PlatformConnectInfo, SetupArgs},
+    exit,
+};
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, remove_file};
 use tracing::info;
@@ -10,33 +17,43 @@ use crate::args::{self, Cli};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct K3sRegistry {
+    #[serde(skip_serializing_if = "Option::is_none")]
     mirrors: Option<HashMap<String, Endpoint>>,
-    configs: Option<HashMap<String, RegistryConfig>>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    configs: Option<HashMap<String, RegistryConfig>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct RegistryConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
     auth: Option<RegistryAuth>,
-    tls: Option<RegistryTls>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tls: Option<RegistryTls>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct RegistryAuth {
+    #[serde(skip_serializing_if = "Option::is_none")]
     username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     password: Option<String>,
-    auth: Option<String>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct RegistryTls {
+    #[serde(skip_serializing_if = "Option::is_none")]
     cert_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     key_file: Option<String>,
-    insecure_skip_verify: Option<bool>
+    #[serde(skip_serializing_if = "Option::is_none")]
+    insecure_skip_verify: Option<bool>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct Endpoint {
-    endpoint: Vec<String>
+    endpoint: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -80,15 +97,21 @@ async fn setup_master_node(
     if !registry_file.exists() {
         fs::write(registry_file, "").await?;
     }
-    let mut registry_cfg: K3sRegistry = serde_yaml::from_str(&fs::read_to_string(registry_file).await?)?;
+    let mut registry_cfg: K3sRegistry =
+        serde_yaml::from_str(&fs::read_to_string(registry_file).await?)?;
     let mirror = match &mut registry_cfg.mirrors {
         Some(m) => m,
         None => {
             registry_cfg.mirrors = Some(HashMap::new());
             registry_cfg.mirrors.as_mut().unwrap()
-        },
+        }
     };
-    mirror.insert(format!("{}:30000", connect_args.master_ip), Endpoint { endpoint: vec![format!("http://{}:30000", connect_args.master_ip)] });
+    mirror.insert(
+        format!("{}:30000", connect_args.master_ip),
+        Endpoint {
+            endpoint: vec![format!("http://{}:30000", connect_args.master_ip)],
+        },
+    );
     fs::write(registry_file, serde_yaml::to_string(&registry_cfg)?).await?;
 
     let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);

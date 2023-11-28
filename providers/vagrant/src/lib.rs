@@ -1,7 +1,12 @@
-use std::{net::{IpAddr, Ipv4Addr}, path::Path};
+use std::net::{IpAddr, Ipv4Addr};
 
 use anyhow::Result;
-use common::{provider::*, config::{SetupArgs, self}, command::command_platform, exit};
+use common::{
+    command::command_platform,
+    config::{self, SetupArgs},
+    exit,
+    provider::*,
+};
 use serde::{Deserialize, Serialize};
 use tokio::fs;
 
@@ -25,7 +30,7 @@ pub struct Nodes {
     pub disk_size: usize,
     pub control: Control,
     pub workers: Workers,
-    pub storage_pool_name: String
+    pub storage_pool_name: String,
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -55,8 +60,9 @@ pub struct Vagrant;
 #[async_trait::async_trait]
 impl Platform for Vagrant {
     async fn pre_setup(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()> {
-        let mut settings: Root =
-            serde_yaml::from_str(&fs::read_to_string("platforms/vagrant/settings.yaml").await?)?;
+        let mut settings: Root = serde_yaml::from_str(
+            &fs::read_to_string(format!("platforms/{}/settings.yaml", setup_args.platform)).await?,
+        )?;
         if let Some(m) = &setup_args.master_platform {
             if m.contains_key("cpu") {
                 settings.nodes.control.cpu = m.get("cpu").unwrap().parse()?;
@@ -74,12 +80,11 @@ impl Platform for Vagrant {
                 settings.nodes.workers.memory = m.get("memory").unwrap().parse()?;
             }
         }
-        settings.nodes.workers.count =
-            setup_args.node_configs.iter().max().unwrap().to_owned() - 1;
+        settings.nodes.workers.count = setup_args.node_configs.iter().max().unwrap().to_owned() - 1;
 
         if let Some(args) = &setup_args.platform_args {
             if args.contains_key("storage_pool_path") {
-                _ = command_platform(
+                command_platform(
                     "virsh",
                     &[
                         "pool-define-as",
@@ -97,15 +102,11 @@ impl Platform for Vagrant {
                     ],
                     &setup_args.platform,
                 )
-                .await;
+                .await?;
 
-                _ = command_platform(
+                command_platform(
                     "virsh",
-                    &[
-                        "pool-start",
-                        "--build",
-                        "graph_storage_pool"
-                    ],
+                    &["pool-start", "--build", "graph_storage_pool"],
                     verbose,
                     [
                         "Starting storage pool",
@@ -114,13 +115,15 @@ impl Platform for Vagrant {
                     ],
                     &setup_args.platform,
                 )
-                .await;
-                settings.nodes.storage_pool_name = Path::new(args.get("storage_pool_path").unwrap()).file_name().unwrap().to_str().unwrap().to_owned()
+                .await?;
+                settings.nodes.storage_pool_name = "graph_storage_pool".to_owned();
             }
+        } else {
+            settings.nodes.storage_pool_name = "default".to_owned();
         }
 
         std::fs::write(
-            "platforms/vagrant/settings.yaml",
+            format!("platforms/{}/settings.yaml", setup_args.platform),
             serde_yaml::to_string(&settings)?,
         )?;
 
@@ -143,7 +146,7 @@ impl Platform for Vagrant {
 
         for d in domains {
             let name = d.get_name()?;
-            if !name.starts_with("vagrant_graph_") {
+            if !name.starts_with("vagrant-libvirt_graph_") {
                 continue;
             }
 
@@ -153,7 +156,7 @@ impl Platform for Vagrant {
                 exit!("", "Vagrant VM does not have any network interfaces! you might need to run with sudo!");
             }
 
-            if name == "vagrant_graph_master" {
+            if name == "vagrant-libvirt_graph_master" {
                 master_ip = if_addrs[0].addrs[0].addr.clone().parse()?;
             } else {
                 worker_ips.push(if_addrs[0].addrs[0].addr.clone().parse()?);
@@ -183,7 +186,34 @@ impl Platform for Vagrant {
             DESTROY,
             &setup_args.platform,
         )
-        .await
+        .await?;
+
+        command_platform(
+            "virsh",
+            &["pool-destroy", "graph_storage_pool"],
+            verbose,
+            [
+                "Destroying storage pool",
+                "Could not destroy storage pool",
+                "Storage pool destroy",
+            ],
+            &setup_args.platform,
+        )
+        .await?;
+
+        command_platform(
+            "virsh",
+            &["pool-undefine", "graph_storage_pool"],
+            verbose,
+            [
+                "Undefine storage pool",
+                "Could not undefine storage pool",
+                "Storage pool undefined",
+            ],
+            &setup_args.platform,
+        )
+        .await?;
+        Ok(())
     }
 
     fn name(self: &Self) -> String {

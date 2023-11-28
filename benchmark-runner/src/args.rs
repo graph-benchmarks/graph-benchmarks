@@ -25,7 +25,7 @@ pub enum Commands {
     /// Teardown platform & kubernetes
     Destroy,
     /// List Resources
-    Ls
+    Ls,
 }
 
 #[derive(Debug, Args)]

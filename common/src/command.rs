@@ -73,7 +73,12 @@ pub async fn command(
     let output = cmd_spawn.wait_with_output().await?;
     let dur = start_time.elapsed();
     if !output.status.success() {
-        exit!(String::from_utf8(output.stdout)?, "{} {}", RED_CROSS.to_string(), msgs[1]);
+        exit!(
+            String::from_utf8(output.stdout)?,
+            "{} {}",
+            RED_CROSS.to_string(),
+            msgs[1]
+        );
     }
 
     finish_progress(msgs[2], dir, dur, pb);

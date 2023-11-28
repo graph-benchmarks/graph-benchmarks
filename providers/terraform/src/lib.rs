@@ -1,7 +1,7 @@
 use std::{fs::Permissions, net::IpAddr, os::unix::fs::PermissionsExt, process::Command};
 
 use anyhow::Result;
-use common::{provider::*, config::SetupArgs, command::command_platform};
+use common::{command::command_platform, config::SetupArgs, provider::*};
 use regex::Regex;
 use tokio::fs::{self, set_permissions};
 
