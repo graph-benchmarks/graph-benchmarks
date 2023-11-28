@@ -22,3 +22,8 @@ base-driver = { path = "../drivers/base-driver" }
 base-provider = { path = "../providers/base-provider" }
 futures = "0.3.29"
 tokio-stream = { version = "0.1.14", features = ["net"] }
+tonic = "0.10.2"
+prost = "0.12.3"
+
+[build-dependencies]
+tonic-build = "0.10.2"

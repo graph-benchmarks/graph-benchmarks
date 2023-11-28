@@ -23,13 +23,20 @@ use k8s_openapi::{
 };
 use kube::{
     api::{DeleteParams, ListParams, PostParams},
-    runtime::{watcher, WatchStreamExt},
+    runtime::{
+        conditions::is_pod_running,
+        wait::{await_condition, Condition},
+        watcher, WatchStreamExt,
+    },
     Api, Client, ResourceExt,
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::args::Cli;
+use crate::{
+    args::Cli,
+    metrics_utils::{start_recording, stop_recording},
+};
 
 const ALGORITHMS: &[&str] = &["bfs", "pr", "wcc", "cdlp", "lcc", "sssp"];
 
@@ -74,8 +81,10 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 None => exit!("", "Could not find driver {}", driver),
             };
 
-            setup_driver(&driver, &connect_args, cli.verbose).await?;
+            setup_graph_platform(&driver, &connect_args, cli.verbose).await?;
             let service_ip = driver_config.get_service_ip().await?;
+            let pod_ids = driver_config.metrics_node_ids().await?;
+
             let mut cfg = DriverConfig {
                 postgres: PostgresConfig {
                     ip: "postgres".to_owned(),
@@ -101,6 +110,19 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     info!("{cfg:#?}");
 
                     let bench_pod = start_bench(&driver, &connect_args.master_ip, &cfg).await?;
+                    let metrics_ip = format!("{}:30001", connect_args.master_ip);
+                    start_recording(metrics_ip.clone(), pod_ids.clone()).await?;
+
+                    let client = Client::try_default().await?;
+                    let api: Api<Pod> = Api::default_namespaced(client);
+                    await_condition(
+                        api,
+                        &bench_pod.metadata.name.unwrap(),
+                        is_pod_running().not(),
+                    )
+                    .await?;
+
+                    stop_recording(metrics_ip, pod_ids.clone()).await?;
                     return Ok(());
                 }
             }
@@ -173,7 +195,11 @@ async fn remove_driver(driver: &str, connect_args: &PlatformInfo, verbose: bool)
     .await
 }
 
-async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
+async fn setup_graph_platform(
+    name: &str,
+    connect_args: &PlatformInfo,
+    verbose: bool,
+) -> Result<()> {
     let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
     if verbose {
         env.insert("DEBUG_ANSIBLE", "1");
@@ -244,7 +270,7 @@ async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) ->
     }
 
     finish_progress(
-        "Driver ready",
+        "Platform ready",
         &format!("drivers/{name}"),
         start.elapsed(),
         Some(pb),

@@ -7,6 +7,8 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 mod args;
 mod commands;
+mod metrics;
+mod metrics_utils;
 
 #[tokio::main]
 async fn main() -> Result<()> {
