@@ -48,7 +48,6 @@ spec:
     - name: registry-pvc
       persistentVolumeClaim:
         claimName: registry-pvc
-        readOnly: true
 ---
 kind: Service 
 apiVersion: v1

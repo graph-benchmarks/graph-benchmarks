@@ -219,9 +219,8 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result
     pod_spec.spec = Some(PodSpec {
         containers: vec![Container {
             args: Some(vec!["/cfg/config.yaml".into()]),
-            image: Some(format!("{}:30000/{}-bench:latest", host_ip, name)),
-            // image_pull_policy: Some("Never".into()),
-            name: "graphscope-bench".into(),
+            image: Some(format!("{}:30000/benches/{}:latest", host_ip, name)),
+            name: format!("{}-bench", name).into(),
             volume_mounts: Some(vec![
                 VolumeMount {
                     mount_path: "/attached".into(),

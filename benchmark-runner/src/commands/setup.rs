@@ -160,9 +160,9 @@ async fn setup_master_node(
             ],
             verbose,
             [
-                &format!("Loading {driver} driver into kubernetes"),
-                &format!("Could not load {driver} driver into kubernetes"),
-                &format!("Done loading {driver} driver into kubernetes"),
+                &format!("Building & loading {driver} driver into kubernetes"),
+                &format!("Could not build / load {driver} driver into kubernetes"),
+                &format!("Done building & loading {driver} driver into kubernetes"),
             ],
             "k3s",
             env.clone(),

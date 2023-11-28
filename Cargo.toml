@@ -1,5 +1,5 @@
 [workspace]
-members = [ "benchmark-runner", "macros", "common", "providers/base-provider", "drivers/base-driver", "providers/vagrant", "providers/terraform", "providers/vagrant", "drivers/graphscope/graphscope-config",]
+members = [ "benchmark-runner", "macros", "common", "providers/base-provider", "drivers/base-driver", "providers/terraform", "providers/vagrant", "drivers/graphscope/graphscope-config",]
 resolver = "2"
 
 [profile.dev]

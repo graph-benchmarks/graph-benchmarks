@@ -6,12 +6,15 @@ workspace=toml.load("Cargo.toml")
 provider_base=toml.load("providers/base-provider/Cargo.toml")
 driver_base=toml.load("drivers/base-driver/Cargo.toml")
 
+remove_entries = []
 for member in workspace["workspace"]["members"]:
     if member != "providers/base-provider" and member.startswith("providers/"):
-        workspace["workspace"]["members"].remove(member)
+        remove_entries.append(member)
     elif member != "drivers/base-driver" and member.startswith("drivers/"):
-        workspace["workspace"]["members"].remove(member)
-print(workspace["workspace"])
+        remove_entries.append(member)
+
+for item in remove_entries:
+    workspace["workspace"]["members"].remove(item)
 
 remove_entries = []
 for dep in provider_base["dependencies"]:
@@ -43,7 +46,3 @@ toml.dump(provider_base, f)
 
 f = open("drivers/base-driver/Cargo.toml", "w")
 toml.dump(driver_base, f)
-
-drivers_str = "\n".join(config["drivers"])
-f = open(".build-drivers", "tw")
-f.write(drivers_str)

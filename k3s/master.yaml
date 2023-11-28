@@ -81,7 +81,7 @@
 
     - name: Append insecure registry
       become: true
-      ansible.builtin.shell: echo "{ \"insecure-registries\":[\"http://{{ ansible_ssh_host }}:30000\"] }" >> /etc/docker/daemon.json
+      ansible.builtin.shell: rm -f /etc/docker/daemon.json && echo "{ \"insecure-registries\":[\"http://{{ ansible_ssh_host }}:30000\"] }" >> /etc/docker/daemon.json
 
     - name: Restart docker
       become: true
