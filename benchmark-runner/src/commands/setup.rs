@@ -156,7 +156,7 @@ async fn setup_master_node(
                 "-i",
                 "inventory/master-hosts.yaml",
                 "--extra-vars",
-                &format!("image={driver}.tar"),
+                &format!("driver={driver}"),
             ],
             verbose,
             [

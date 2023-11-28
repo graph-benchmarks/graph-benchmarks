@@ -75,6 +75,20 @@
         namespace: default
         src: internal-registry.yaml
 
+    - name: Install docker
+      become: true
+      ansible.builtin.shell: curl -fsSL https://get.docker.com/ | sh
+
+    - name: Append insecure registry
+      become: true
+      ansible.builtin.shell: echo "{ \"insecure-registries\":[\"http://{{ ansible_ssh_host }}:30000\"] }" >> /etc/docker/daemon.json
+
+    - name: Restart docker
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: docker
+
     - name: Custom registry config
       become: true
       when: "'data/k3s_registry.yaml' is file"

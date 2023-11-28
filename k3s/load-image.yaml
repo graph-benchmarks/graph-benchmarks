@@ -1,9 +1,15 @@
 - name: Load image
   hosts: master
   tasks:
-    - name: Tag and push to docker hub
-      community.docker.docker_image:
-        name: {{ image }}-bench
-        repository: {{ ansible_ssh_host }}:30000/{{ image }}-bench:latest
-        push: true
-        source: local
+    - name: Copy driver files
+      ansible.builtin.copy:
+        src: "../drivers/{{ driver }}"
+        dest: .
+
+    - name: Build image
+      become: true
+      ansible.builtin.shell: "docker build -t {{ ansible_ssh_host }}:30000/benches/{{ driver }} ."
+
+    - name: Push image
+      become: true
+      ansible.builtin.shell: "docker push {{ ansible_ssh_host }}:30000/benches/{{ driver }}"

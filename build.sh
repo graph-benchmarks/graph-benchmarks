@@ -10,10 +10,3 @@ if [[ -z "${SKIP_CARGO}" ]]; then
 else
     echo "Skipping cargo build"
 fi
-
-while IFS= read -r line || [[ -n "$line" ]]; do
-    pushd drivers/$line
-    docker build -t $line-bench . || exit -1
-    echo $line image built!
-    popd
-done < .build-drivers
