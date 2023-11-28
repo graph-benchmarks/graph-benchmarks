@@ -1,19 +1,62 @@
-use std::{collections::HashMap, path::PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{bail, Result};
+use common::{
+    command::command,
+    config::{parse_config, KubeSetup, PlatformConnectInfo, SetupArgs},
+    exit,
+};
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, remove_file};
 use tracing::info;
 
-use crate::{
-    args::*,
-    common::command,
-    config::{self, *},
-    exit,
-    platforms::PLATFORMS,
-};
+use crate::args::{self, Cli};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct K3sRegistry {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mirrors: Option<HashMap<String, Endpoint>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    configs: Option<HashMap<String, RegistryConfig>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RegistryConfig {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth: Option<RegistryAuth>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tls: Option<RegistryTls>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RegistryAuth {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    password: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    auth: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct RegistryTls {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cert_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    key_file: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    insecure_skip_verify: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct Endpoint {
+    endpoint: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Item<'a> {
     pub hosts: HashMap<String, ()>,
     #[serde(borrow)]
@@ -22,7 +65,7 @@ pub struct Item<'a> {
 
 async fn setup_master_node(
     connect_args: &PlatformConnectInfo,
-    kube_config: Option<config::KubeSetup>,
+    kube_config: Option<KubeSetup>,
     drivers: Vec<String>,
     verbose: bool,
 ) -> Result<()> {
@@ -49,6 +92,27 @@ async fn setup_master_node(
 
     let master_hosts = HashMap::from([("master", Item { hosts, vars })]);
     fs::write(master_hosts_file, serde_yaml::to_string(&master_hosts)?).await?;
+
+    let registry_file = Path::new("k3s/data/k3s_registry.yaml");
+    if !registry_file.exists() {
+        fs::write(registry_file, "").await?;
+    }
+    let mut registry_cfg: K3sRegistry =
+        serde_yaml::from_str(&fs::read_to_string(registry_file).await?)?;
+    let mirror = match &mut registry_cfg.mirrors {
+        Some(m) => m,
+        None => {
+            registry_cfg.mirrors = Some(HashMap::new());
+            registry_cfg.mirrors.as_mut().unwrap()
+        }
+    };
+    mirror.insert(
+        format!("{}:30000", connect_args.master_ip),
+        Endpoint {
+            endpoint: vec![format!("http://{}:30000", connect_args.master_ip)],
+        },
+    );
+    fs::write(registry_file, serde_yaml::to_string(&registry_cfg)?).await?;
 
     let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
     if verbose {
@@ -92,13 +156,13 @@ async fn setup_master_node(
                 "-i",
                 "inventory/master-hosts.yaml",
                 "--extra-vars",
-                &format!("image={driver}.tar")
+                &format!("driver={driver}"),
             ],
             verbose,
             [
-                &format!("Loading {driver} driver into kubernetes"),
-                &format!("Could not load {driver} driver into kubernetes"),
-                &format!("Done loading {driver} driver into kubernetes"),
+                &format!("Building & loading {driver} driver into kubernetes"),
+                &format!("Could not build / load {driver} driver into kubernetes"),
+                &format!("Done building & loading {driver} driver into kubernetes"),
             ],
             "k3s",
             env.clone(),
@@ -170,30 +234,30 @@ async fn setup_worker_node(connect_args: &PlatformConnectInfo, verbose: bool) ->
 }
 
 async fn setup_platform(
-    platform_args: &PlatformArgs,
-    cli: &SetupArgs,
+    setup_args: &SetupArgs,
+    cli: &args::SetupArgs,
     verbose: bool,
 ) -> Result<PlatformConnectInfo> {
-    for p in PLATFORMS {
-        if p.name() == platform_args.platform {
+    for p in base_provider::PROVIDERS {
+        if p.name() == setup_args.provider {
             if !cli.only_platform_outputs {
-                p.pre_setup(platform_args, verbose).await?;
-                p.setup(platform_args, verbose).await?;
+                p.pre_setup(setup_args, verbose).await?;
+                p.setup(setup_args, verbose).await?;
             }
 
-            let info = p.platform_info(platform_args, verbose).await?;
+            let info = p.platform_info(setup_args, verbose).await?;
             return Ok(PlatformConnectInfo {
                 private_key_file: info.ssh_key,
                 worker_ips: info.worker_ips,
                 master_ip: info.master_ip,
-                host_username: platform_args.host_username.clone(),
+                host_username: setup_args.host_username.clone(),
             });
         }
     }
-    bail!(format!("Unknown platform {}", platform_args.platform))
+    bail!(format!("Unknown platform {}", setup_args.platform))
 }
 
-pub async fn setup(args: &SetupArgs, cli: &Cli) -> Result<()> {
+pub async fn setup(args: &args::SetupArgs, cli: &Cli) -> Result<()> {
     let config = parse_config(&cli.file)?;
     let connect_args = match setup_platform(&config.setup, &args, cli.verbose).await {
         Ok(p) => p,
@@ -209,6 +273,12 @@ pub async fn setup(args: &SetupArgs, cli: &Cli) -> Result<()> {
         );
     }
 
-    setup_master_node(&connect_args, config.kubernetes, config.benchmark.drivers, cli.verbose).await?;
+    setup_master_node(
+        &connect_args,
+        config.kubernetes,
+        config.benchmark.drivers,
+        cli.verbose,
+    )
+    .await?;
     setup_worker_node(&connect_args, cli.verbose).await
 }

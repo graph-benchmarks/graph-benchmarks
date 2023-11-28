@@ -1,12 +1,15 @@
 - name: Load image
   hosts: master
   tasks:
-    - name: Copy image
+    - name: Copy driver files
       ansible.builtin.copy:
-        src: ../bin/{{ image }}
-        dest: "{{ image }}"
-        mode: 'g+r'
+        src: "../drivers/{{ driver }}"
+        dest: .
 
-    - name: Load image
+    - name: Build image
       become: true
-      ansible.builtin.shell: k3s ctr images import {{ image }}
+      ansible.builtin.shell: "docker build -t {{ ansible_ssh_host }}:30000/benches/{{ driver }} ."
+
+    - name: Push image
+      become: true
+      ansible.builtin.shell: "docker push {{ ansible_ssh_host }}:30000/benches/{{ driver }}"

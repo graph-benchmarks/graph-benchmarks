@@ -1,0 +1,16 @@
+[package]
+name = "base-driver"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1"
+
+[dependencies.macros]
+path = "../../macros"
+
+[dependencies.common]
+path = "../../common"
+
+[dependencies.graphscope-config]
+path = "../graphscope/graphscope-config"

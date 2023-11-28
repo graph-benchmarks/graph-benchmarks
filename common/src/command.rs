@@ -14,6 +14,7 @@ use crate::exit;
 lazy_static::lazy_static! {
     static ref DOTS_STYLE: ProgressStyle = ProgressStyle::with_template("{spinner} {msg} {elapsed_precise}").unwrap().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
     static ref GREEN_TICK: StyledObject<&'static str> = style("✔").green();
+    static ref RED_CROSS: StyledObject<&'static str> = style("✗").red();
 }
 
 pub fn progress(msg: &str) -> ProgressBar {
@@ -36,7 +37,7 @@ pub async fn command_platform(
         args,
         verbose,
         msgs,
-        &format!("platform/{platform}"),
+        &format!("platforms/{platform}"),
         HashMap::<String, String>::new(),
     )
     .await
@@ -72,11 +73,23 @@ pub async fn command(
     let output = cmd_spawn.wait_with_output().await?;
     let dur = start_time.elapsed();
     if !output.status.success() {
-        exit!(String::from_utf8(output.stdout)?, "{}", msgs[1]);
+        exit!(
+            String::from_utf8(output.stdout)?,
+            "{} {}",
+            RED_CROSS.to_string(),
+            msgs[1]
+        );
     }
 
     finish_progress(msgs[2], dir, dur, pb);
     Ok(())
+}
+
+fn elapsed_time_str(dur: &Duration) -> String {
+    let seconds = dur.as_secs() % 60;
+    let minutes = (dur.as_secs() / 60) % 60;
+    let hours = (dur.as_secs() / 60) / 60;
+    format!("{:0>2}:{:0>2}:{:0>2}", hours, minutes, seconds)
 }
 
 pub fn finish_progress(
@@ -90,11 +103,10 @@ pub fn finish_progress(
     }
 
     println!(
-        "{} {} ({}) took, {}.{:02}s",
+        "{} {} ({}) took, {}",
         GREEN_TICK.to_string(),
         status_message,
         context,
-        dur.as_secs(),
-        dur.as_millis() - (dur.as_secs() as u128 * 1000)
+        elapsed_time_str(&dur)
     );
 }

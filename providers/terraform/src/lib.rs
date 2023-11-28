@@ -1,18 +1,11 @@
 use std::{fs::Permissions, net::IpAddr, os::unix::fs::PermissionsExt, process::Command};
 
 use anyhow::Result;
+use common::{command::command_platform, config::SetupArgs, provider::*};
 use regex::Regex;
 use tokio::fs::{self, set_permissions};
 
-use crate::{
-    common::command_platform,
-    config::PlatformArgs,
-    platforms::{PlatformInfo, DESTROY},
-};
-
 use serde::{Deserialize, Serialize};
-
-use super::{Platform, SETUP};
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -54,14 +47,14 @@ pub struct Terraform;
 
 #[async_trait::async_trait]
 impl Platform for Terraform {
-    async fn pre_setup(&self, _: &PlatformArgs, _: bool) -> Result<()> {
+    async fn pre_setup(&self, _: &SetupArgs, _: bool) -> Result<()> {
         Ok(())
     }
 
-    async fn setup(&self, platform_args: &PlatformArgs, verbose: bool) -> Result<()> {
-        let vars = get_vm_map(&platform_args)?;
+    async fn setup(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()> {
+        let vars = get_vm_map(&setup_args)?;
         fs::write(
-            format!("platform/{}/vars.tfvars", self.name()),
+            format!("platforms/{}/vars.tfvars", setup_args.platform),
             hcl::to_string(&vars)?,
         )
         .await?;
@@ -71,21 +64,21 @@ impl Platform for Terraform {
             &["apply", "--auto-approve", "-var-file=vars.tfvars"],
             verbose,
             SETUP,
-            &self.name(),
+            &setup_args.platform,
         )
         .await
     }
 
-    async fn platform_info(&self, _: &PlatformArgs, _: bool) -> Result<super::PlatformInfo> {
+    async fn platform_info(&self, setup_args: &SetupArgs, _: bool) -> Result<PlatformInfo> {
         let mut cmd = Command::new("terraform");
         let output = cmd
-            .current_dir(format!("platform/{}", self.name()))
+            .current_dir(format!("platforms/{}", setup_args.platform))
             .args(["output", "-json"])
             .output()?;
         let json = String::from_utf8(output.stdout)?;
         let mut connect_info: Root = serde_json::from_str(&json)?;
 
-        let private_key_file = format!("platform/{}/key.pem", self.name());
+        let private_key_file = format!("platforms/{}/key.pem", setup_args.platform);
         std::fs::write(&private_key_file, connect_info.key_data.value)?;
         set_permissions(&private_key_file, Permissions::from_mode(0o600)).await?;
 
@@ -104,13 +97,13 @@ impl Platform for Terraform {
         })
     }
 
-    async fn destroy(&self, verbose: bool) -> Result<()> {
+    async fn destroy(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()> {
         command_platform(
             "terraform",
             &["destroy", "--auto-approve", "-var-file=vars.tfvars"],
             verbose,
             DESTROY,
-            &self.name(),
+            &setup_args.platform,
         )
         .await
     }
@@ -120,7 +113,7 @@ impl Platform for Terraform {
     }
 }
 
-fn get_vm_map(args: &PlatformArgs) -> Result<hcl::Map<String, hcl::Map<String, hcl::Value>>> {
+fn get_vm_map(args: &SetupArgs) -> Result<hcl::Map<String, hcl::Map<String, hcl::Value>>> {
     let max_nodes = args.node_configs.iter().max().unwrap();
     let mut vm_map: hcl::Map<String, hcl::Value> = hcl::Map::new();
     let worker_name_match = Regex::new(r"worker-[0-9]+")?;
@@ -128,8 +121,8 @@ fn get_vm_map(args: &PlatformArgs) -> Result<hcl::Map<String, hcl::Map<String, h
         let mut m: hcl::Map<String, hcl::Value> = hcl::Map::new();
         if i == 0 {
             m.insert("name".to_owned(), "master".into());
-            if args.master_platform_env.is_some() {
-                args.master_platform_env
+            if args.master_platform.is_some() {
+                args.master_platform
                     .as_ref()
                     .unwrap()
                     .iter()
@@ -139,8 +132,8 @@ fn get_vm_map(args: &PlatformArgs) -> Result<hcl::Map<String, hcl::Map<String, h
             }
         } else {
             m.insert("name".to_owned(), format!("worker-{}", i).into());
-            if args.worker_platform_env.is_some() {
-                args.worker_platform_env
+            if args.worker_platform.is_some() {
+                args.worker_platform
                     .as_ref()
                     .unwrap()
                     .iter()

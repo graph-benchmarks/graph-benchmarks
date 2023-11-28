@@ -1,33 +1,63 @@
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as Ts;
-use quote::{quote, format_ident};
+use quote::{format_ident, quote};
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct BuildConfig {
+    drivers: Vec<String>,
+    providers: Vec<String>,
+}
 
 #[proc_macro]
-pub fn include_driver_config(_: TokenStream) -> TokenStream {
-    let drivers = std::fs::read_to_string("build-drivers").unwrap();
-    let mut drivers_ident = Vec::new();
-    let mut drivers_ident_caps = Vec::new();
+pub fn include_drivers(_: TokenStream) -> TokenStream {
+    let config: BuildConfig =
+        toml::from_str(&std::fs::read_to_string("build.config.toml").unwrap()).unwrap();
+    let mut drivers = Vec::new();
+    let mut drivers_caps = Vec::new();
 
-    let mut stream = Ts::new();
-    for d in drivers.split('\n').map(|x| x.trim().to_string()).collect::<Vec<String>>() {
-        let driver_path = format!("../../drivers/{d}/config.rs");
-        let d_name = format_ident!("{}", d);
-
-        let d_cap: String = d.chars().take(1).flat_map(|f| f.to_uppercase()).chain(d.chars().skip(1)).collect();
+    for p in config.drivers {
+        let d_cap: String = p
+            .chars()
+            .take(1)
+            .flat_map(|f| f.to_uppercase())
+            .chain(p.chars().skip(1))
+            .collect();
         let d_name_caps = format_ident!("{}", d_cap);
-        drivers_ident.push(d_name.clone());
-        drivers_ident_caps.push(d_name_caps);
+        let d_name = format_ident!("{}_config", p);
 
-        stream.extend::<Ts>(quote! {
-            mod #d_name {
-                include!(#driver_path);
-            }
-        });
+        drivers.push(d_name);
+        drivers_caps.push(d_name_caps);
     }
 
-    stream.extend::<Ts>(quote!{
-        pub const DRIVER_CONFIGS: &[&'static dyn DriverConfig] = &[&#(#drivers_ident::#drivers_ident_caps,)*];
-    });
+    quote! {
+        pub const DRIVER_CONFIGS: &[&'static dyn DriverConfig] = &[#(&#drivers::#drivers_caps,)*];
+    }
+    .into()
+}
 
-    stream.into()
+#[proc_macro]
+pub fn include_providers(_: TokenStream) -> TokenStream {
+    let config: BuildConfig =
+        toml::from_str(&std::fs::read_to_string("build.config.toml").unwrap()).unwrap();
+    let mut provider = Vec::new();
+    let mut provider_caps = Vec::new();
+
+    for p in config.providers {
+        let d_cap: String = p
+            .chars()
+            .take(1)
+            .flat_map(|f| f.to_uppercase())
+            .chain(p.chars().skip(1))
+            .collect();
+        let p_name_caps = format_ident!("{}", d_cap);
+        let p_name = format_ident!("{}", p);
+
+        provider.push(p_name);
+        provider_caps.push(p_name_caps);
+    }
+
+    quote! {
+        pub const PROVIDERS: &[&'static dyn Platform] = &[#(&#provider::#provider_caps,)*];
+    }
+    .into()
 }

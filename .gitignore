@@ -10,3 +10,5 @@ terraform.tfstate.backup
 config.toml
 bin
 .idea
+previous.build.config.toml
+.build-drivers

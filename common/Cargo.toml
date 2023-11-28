@@ -1,0 +1,15 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+console = "0.15"
+indicatif = "0.17"
+lazy_static = "1"
+toml = "0.8"
+tracing = "0.1"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
