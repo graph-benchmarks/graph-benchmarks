@@ -8,6 +8,8 @@ edition = "2021"
 [dependencies]
 proc-macro2 = "1.0.69"
 quote = "1.0.33"
+serde = { version = "1.0.193", features = ["derive"] }
+toml = "0.8.8"
 
 [lib]
 proc-macro = true

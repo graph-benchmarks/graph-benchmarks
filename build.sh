@@ -1,5 +1,7 @@
 #!/bin/bash
 
+python3 build-config.py
+
 cargo build --release || exit -1
 mkdir -p bin || exit -1
 cp target/release/benchmark-runner bin/bench || exit -1
@@ -10,5 +12,4 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     docker build -t $line . || exit -1
     echo $line image built!
     popd
-    docker save $line -o bin/$line.tar || exit -1
-done < build-drivers
+done < .build-drivers

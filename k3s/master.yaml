@@ -3,7 +3,7 @@
   tasks:
     - name: Check if k3s is installed
       become: true
-      ansible.builtin.systemd_service:
+      ansible.builtin.systemd:
         name: k3s
       register: k3s_status
 
@@ -62,6 +62,19 @@
         dest: kube-config
         flat: true
 
+    - name: Copy internal registry yaml
+      ansible.builtin.copy:
+        src: data/internal-registry.yaml
+        dest: internal-registry.yaml
+        mode: 'g+w'
+
+    - name: Create internal registry
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        namespace: default
+        src: internal-registry.yaml
+
     - name: Custom registry config
       become: true
       when: "'data/k3s_registry.yaml' is file"
@@ -74,7 +87,7 @@
 
         - name: Restart k3s
           become: true
-          ansible.builtin.systemd_service:
+          ansible.builtin.systemd:
             state: restarted
             name: k3s
 

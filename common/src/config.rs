@@ -8,7 +8,7 @@ use crate::exit;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
-    pub setup: PlatformArgs,
+    pub setup: SetupArgs,
     pub kubernetes: Option<KubeSetup>,
     pub benchmark: Benchmark,
 }
@@ -22,12 +22,14 @@ pub struct PlatformConnectInfo {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PlatformArgs {
+pub struct SetupArgs {
     pub host_username: Option<String>,
     pub platform: String,
+    pub provider: String,
     pub node_configs: Vec<usize>,
-    pub master_platform_env: Option<HashMap<String, String>>,
-    pub worker_platform_env: Option<HashMap<String, String>>,
+    pub master_platform: Option<HashMap<String, String>>,
+    pub worker_platform: Option<HashMap<String, String>>,
+    pub platform_args: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
