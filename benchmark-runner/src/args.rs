@@ -26,6 +26,8 @@ pub enum Commands {
     Destroy,
     /// List Resources
     Ls,
+    /// Port forward dashboard
+    Dashboard,
 }
 
 #[derive(Debug, Args)]

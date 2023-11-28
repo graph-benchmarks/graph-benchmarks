@@ -10,7 +10,7 @@ anyhow = "1.0.75"
 clap = { version = "4.4.8", features = ["derive"] }
 futures-util = "0.3.29"
 k8s-openapi = { version = "0.20", features = ["latest"] }
-kube = { version = "0.87", features = ["runtime", "derive"] }
+kube = { version = "0.87", features = ["runtime", "derive", "ws"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["full"] }
@@ -20,3 +20,5 @@ tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 common = { path = "../common" }
 base-driver = { path = "../drivers/base-driver" }
 base-provider = { path = "../providers/base-provider" }
+futures = "0.3.29"
+tokio-stream = { version = "0.1.14", features = ["net"] }

@@ -15,7 +15,7 @@ use common::{
 use futures_util::{StreamExt, TryStreamExt};
 use k8s_openapi::{
     api::core::v1::{
-        ConfigMap, ConfigMapVolumeSource, Container, HostPathVolumeSource, PersistentVolume,
+        ConfigMap, ConfigMapVolumeSource, Container, HostPathVolumeSource, Node, PersistentVolume,
         PersistentVolumeClaim, PersistentVolumeClaimSpec, PersistentVolumeClaimVolumeSource,
         PersistentVolumeSpec, Pod, PodSpec, ResourceRequirements, Volume, VolumeMount,
     },
@@ -62,10 +62,12 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
         exit!("", "Unknown platform {}", config.setup.platform)
     };
 
+    env::set_var("KUBECONFIG", "k3s/kube-config");
     setup_pv_and_pvc().await?;
 
     config.setup.node_configs.sort_by(|a, b| b.cmp(a));
     for n_nodes in config.setup.node_configs {
+        new_cluster_node_count(n_nodes).await?;
         for driver in &config.benchmark.drivers {
             let driver_config = match base_driver::get_driver_config(driver) {
                 Some(d) => d,
@@ -102,10 +104,73 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     return Ok(());
                 }
             }
+
+            remove_driver(&driver, &connect_args, cli.verbose).await?;
         }
     }
 
     Ok(())
+}
+
+async fn new_cluster_node_count(n_nodes: usize) -> Result<()> {
+    let client = Client::try_default().await?;
+    let api: Api<Node> = Api::all(client);
+    let mut nodes = api.list(&ListParams::default()).await?;
+    if nodes.items.len() > n_nodes {
+        nodes.items.sort_by(|a, b| {
+            let a_name = a.metadata.name.as_ref().unwrap();
+            let b_name = b.metadata.name.as_ref().unwrap();
+            let get_idx = |n: &str| {
+                if n.starts_with("worker-") {
+                    n.split("worker-").last().unwrap().parse::<i32>().unwrap()
+                } else {
+                    -1
+                }
+            };
+
+            get_idx(a_name).cmp(&get_idx(b_name))
+        });
+
+        let curr_nodes_len = nodes.items.len();
+        let delete_nodes = nodes
+            .items
+            .drain(..)
+            .rev()
+            .take(curr_nodes_len - n_nodes)
+            .map(|x| x.metadata.name.unwrap())
+            .collect::<Vec<String>>();
+        for node in delete_nodes {
+            api.delete(&node, &DeleteParams::default()).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn remove_driver(driver: &str, connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
+    let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
+    if verbose {
+        env.insert("DEBUG_ANSIBLE", "1");
+    }
+
+    command(
+        "ansible-playbook",
+        &[
+            "remove.yaml",
+            "--private-key",
+            &connect_args.ssh_key,
+            "-i",
+            "../../k3s/inventory/master-hosts.yaml",
+        ],
+        verbose,
+        [
+            &format!("Removing driver {driver}"),
+            &format!("Could not remove {driver}"),
+            &format!("Removed {driver}"),
+        ],
+        &format!("drivers/{}", driver),
+        env,
+    )
+    .await
 }
 
 async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
@@ -261,8 +326,6 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result
 }
 
 async fn setup_pv_and_pvc() -> Result<()> {
-    env::set_var("KUBECONFIG", "k3s/kube-config");
-
     let default_pp = PostParams {
         dry_run: false,
         field_manager: None,
