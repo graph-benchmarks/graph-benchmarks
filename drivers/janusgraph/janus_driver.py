@@ -1,11 +1,13 @@
 import sys
-import graphscope as gs
 import psycopg
 import psycopg.sql as sql
 import yaml
 import time
-from graphscope.framework import loader
-from graphscope.framework.graph import Graph, GraphDAGNode
+from gremlin_python import statics
+from gremlin_python.structure.graph import Graph
+from gremlin_python.process.graph_traversal import __
+from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
+from gremlin_python.process.anonymous_traversal import traversal, GraphTraversalSource
 
 # check if table exists on postgres
 def check_table(conn: psycopg.Connection)->None:
@@ -29,46 +31,30 @@ def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str,
 
     cur.execute(query, (log_id, algo, dataset, type_, time))
     conn.commit()
-    cur.close()
+    cur.close()    
 
-def load_data(g: Graph | GraphDAGNode, vertex_file:str, edge_file:str)->int:
-    """
-    Returns loading time
-    """
-    v = loader.Loader(f"file://{vertex_file}", header_row=False)
-    e = loader.Loader(f"file://{edge_file}", header_row=False)
-
-    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    g = g.add_vertices(v, 'vertex')
-    g = g.add_edges(e, 'edges')
-    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-
-    duration = end_time - start_time
-    return duration
-    
-
-def bfs(g):
-    gs.bfs(g)
+def bfs(g: GraphTraversalSource):
+    g.V()
  
-def pr(g):
+def pr(g: GraphTraversalSource):
     # figure out what max round is?
-    gs.pagerank(g)
+    g.V()
 
 # weakly connected components
-def wcc(g):
-    gs.wcc(g)
+def wcc(g: GraphTraversalSource):
+    g.V()
 
 # community detection using label propagation
-def cdlp(g):
-    gs.lpa(g)
+def cdlp(g: GraphTraversalSource):
+    g.V()
 
 # local cluster coefficient
-def lcc(g):
-    gs.avg_clustering(g)
+def lcc(g: GraphTraversalSource):
+    g.V()
 
 # single source shortest paths
-def sssp(g):
-    gs.sssp(g)
+def sssp(g: GraphTraversalSource):
+    g.V()
 
 def main():
     # functional arguments position for the program
@@ -86,8 +72,8 @@ def main():
     with open(config_yml, 'r') as yml_file:
         configs = yaml.safe_load(yml_file)
 
-    gs_host = configs["platform"]["host"]
-    gs_port = configs["platform"]["port"]
+    janus_host = configs["platform"]["host"]
+    janus_port = configs["platform"]["port"]
 
     pg_host = configs["postgres"]["host"]
     pg_db = configs["postgres"]["db"]
@@ -106,17 +92,17 @@ def main():
         quit(1)
 
     try:
-        sess = gs.session(addr=f"{gs_host}:{gs_port}")
+        sess = DriverRemoteConnection(f"ws://{janus_host}:{janus_port}/gremlin", 'g')
     except:
         lf.write("Error: could not connect to graphscope cluster\n")
         lf.close()
         conn.close()    
         quit(1)
     
-    g = sess.g()
+    g = traversal().withRemote(sess)
     check_table(conn)
-    duration = load_data(g, vertex_file, edge_file)
-    log_metrics_sql(conn, load_id, algo, dataset, "loading", duration)
+    #duration = load_data(g, vertex_file, edge_file)
+    #log_metrics_sql(conn, load_id, algo, dataset, "loading", duration)
 
     func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
 
