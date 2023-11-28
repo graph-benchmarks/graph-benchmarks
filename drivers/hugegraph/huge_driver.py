@@ -12,8 +12,7 @@ def check_table(conn: psycopg.Connection)->None:
     ret = cur.execute(query)
     
     if not ret.fetchone()[0]:
-        query = sql.SQL("CREATE TABLE gn_test(id INTEGER, algo VARCHAR(256), dataset VARCHAR(256), type VARCHAR(256), time INTEGER)")  
-        cur.execute(query)
+        query = sql.SQL("CREATE TABLE gn_test(id INTEGER, algo VARCHAR(256), dataset VARCHAR(256), type VARCHAR(256), time INTEGER)")  cur.execute(query)
  
     conn.commit()       
     cur.close()
@@ -73,8 +72,8 @@ def main():
     with open(config_yml, 'r') as yml_file:
         configs = yaml.safe_load(yml_file)
 
-    huge_host = configs["janus"]["host"]
-    huge_port = configs["janus"]["port"]
+    huge_host = configs["platform"]["host"]
+    huge_port = configs["platform"]["port"]
     url = f"http://{huge_host}:{huge_port}/gremlin"
 
     pg_host = configs["postgres"]["host"]

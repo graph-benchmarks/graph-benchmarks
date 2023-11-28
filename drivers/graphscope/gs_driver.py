@@ -86,8 +86,8 @@ def main():
     with open(config_yml, 'r') as yml_file:
         configs = yaml.safe_load(yml_file)
 
-    gs_host = configs["graphscope"]["host"]
-    gs_port = configs["graphscope"]["port"]
+    gs_host = configs["platform"]["host"]
+    gs_port = configs["platform"]["port"]
 
     pg_host = configs["postgres"]["host"]
     pg_db = configs["postgres"]["db"]
