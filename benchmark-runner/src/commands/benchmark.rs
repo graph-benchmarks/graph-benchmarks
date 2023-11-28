@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     env,
+    net::IpAddr,
     time::Instant,
 };
 
@@ -97,7 +98,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     cfg.algo = algorithm.clone();
                     info!("{cfg:#?}");
 
-                    let bench_pod = start_bench(&cfg).await?;
+                    let bench_pod = start_bench(&driver, &connect_args.master_ip, &cfg).await?;
                     return Ok(());
                 }
             }
@@ -186,7 +187,7 @@ async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) ->
     Ok(())
 }
 
-async fn start_bench(cfg: &DriverConfig) -> Result<Pod> {
+async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result<Pod> {
     let client = Client::try_default().await?;
 
     let default_pp = PostParams {
@@ -194,13 +195,13 @@ async fn start_bench(cfg: &DriverConfig) -> Result<Pod> {
         field_manager: None,
     };
 
+    let pod_name = format!("{}-bench", name);
+
     let config_map: Api<ConfigMap> = Api::default_namespaced(client.clone());
-    _ = config_map
-        .delete("benchmark-cfg", &DeleteParams::default())
-        .await;
+    _ = config_map.delete(&pod_name, &DeleteParams::default()).await;
 
     let mut config_map_spec = ConfigMap::default();
-    config_map_spec.metadata.name = Some("benchmark-cfg".into());
+    config_map_spec.metadata.name = Some(pod_name.clone());
     config_map_spec.data = Some(BTreeMap::from([(
         "config.yaml".into(),
         serde_yaml::to_string(&cfg)?,
@@ -211,14 +212,14 @@ async fn start_bench(cfg: &DriverConfig) -> Result<Pod> {
     let pods: Api<Pod> = Api::default_namespaced(client);
     let mut dp = DeleteParams::default();
     dp.grace_period_seconds = Some(0);
-    _ = pods.delete("graphscope-bench", &dp).await;
+    _ = pods.delete(&pod_name, &dp).await;
 
     let mut pod_spec = Pod::default();
-    pod_spec.metadata.name = Some("graphscope-bench".into());
+    pod_spec.metadata.name = Some(pod_name.clone());
     pod_spec.spec = Some(PodSpec {
         containers: vec![Container {
             args: Some(vec!["/cfg/config.yaml".into()]),
-            image: Some("registry.pub.348575.xyz:5000/graphscope/bench".into()),
+            image: Some(format!("{}:30000/{}-bench:latest", host_ip, name)),
             // image_pull_policy: Some("Never".into()),
             name: "graphscope-bench".into(),
             volume_mounts: Some(vec![
@@ -228,7 +229,7 @@ async fn start_bench(cfg: &DriverConfig) -> Result<Pod> {
                     ..VolumeMount::default()
                 },
                 VolumeMount {
-                    name: "benchmark-cfg".into(),
+                    name: pod_name.clone(),
                     mount_path: "/cfg".into(),
                     read_only: Some(true),
                     ..VolumeMount::default()
@@ -246,9 +247,9 @@ async fn start_bench(cfg: &DriverConfig) -> Result<Pod> {
                 ..Volume::default()
             },
             Volume {
-                name: "benchmark-cfg".into(),
+                name: pod_name.clone(),
                 config_map: Some(ConfigMapVolumeSource {
-                    name: Some("benchmark-cfg".into()),
+                    name: Some(pod_name.clone()),
                     ..ConfigMapVolumeSource::default()
                 }),
                 ..Volume::default()

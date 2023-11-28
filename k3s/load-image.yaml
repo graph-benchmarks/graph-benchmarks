@@ -1,12 +1,9 @@
 - name: Load image
   hosts: master
   tasks:
-    - name: Copy image
-      ansible.builtin.copy:
-        src: ../bin/{{ image }}
-        dest: "{{ image }}"
-        mode: 'g+r'
-
-    - name: Load image
-      become: true
-      ansible.builtin.shell: k3s ctr images import {{ image }}
+    - name: Tag and push to docker hub
+      community.docker.docker_image:
+        name: {{ image }}-bench
+        repository: {{ ansible_ssh_host }}:30000/{{ image }}-bench:latest
+        push: true
+        source: local
