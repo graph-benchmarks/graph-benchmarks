@@ -72,17 +72,17 @@ try:
     # Create a bar for each dataset within each algorithm.
     for i, dataset in enumerate(datasets):
         times = [data_groups[algo][dataset][0] if dataset in data_groups[algo] else 0 for algo in algorithms]
-        ax.bar(x + i * bar_width, times, width=bar_width, label=dataset)
+        ax.barh(x + i * bar_width, times, height=bar_width, label=dataset)
 
     # Plot design.
-    ax.set_xlabel("Algorithms")
-    ax.set_ylabel("Time")
+    ax.set_xlabel("Time")
+    ax.set_ylabel("Algorithms")
     ax.set_title(
-        "Execution Time for Different Datasets per Algorithm", 
+        "Execution Time for Datasets per Algorithm", 
         fontweight="bold"
     )
-    ax.set_xticks(x + bar_width * (len(datasets) - 1) / 2)
-    ax.set_xticklabels(algorithms)
+    ax.set_yticks(x + bar_width * (len(datasets) - 1) / 2)
+    ax.set_yticklabels(algorithms)
     ax.legend(title="Datasets")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
@@ -104,7 +104,7 @@ except psycopg2.Error as error:
     # to receive new connections yet. 
     # Therefore sleep before restarted by Docker.
     print("Go to sleep before exitting...")
-    time.sleep(5)
+    time.sleep(2)
     
     exit()
 
