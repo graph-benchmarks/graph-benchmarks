@@ -5,7 +5,7 @@
 -- Dumped from database version 16.1
 -- Dumped by pg_dump version 16.1 (Homebrew)
 
--- Started on 2023-11-23 19:50:25 CET
+-- Started on 2023-11-29 17:26:10 CET
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -18,13 +18,10 @@ SET xmloption = content;
 SET client_min_messages = warning;
 SET row_security = off;
 
-DROP DATABASE postgres;
 --
--- TOC entry 3350 (class 1262 OID 5)
+-- TOC entry 3355 (class 1262 OID 5)
 -- Name: postgres; Type: DATABASE; Schema: -; Owner: user
 --
-
-CREATE DATABASE postgres WITH TEMPLATE = template0 ENCODING = 'UTF8' LOCALE_PROVIDER = libc LOCALE = 'en_US.utf8';
 
 
 ALTER DATABASE postgres OWNER TO "user";
@@ -43,8 +40,8 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- TOC entry 3351 (class 0 OID 0)
--- Dependencies: 3350
+-- TOC entry 3356 (class 0 OID 0)
+-- Dependencies: 3355
 -- Name: DATABASE postgres; Type: COMMENT; Schema: -; Owner: user
 --
 
@@ -62,7 +59,7 @@ CREATE SCHEMA IF NOT EXISTS public;
 ALTER SCHEMA public OWNER TO pg_database_owner;
 
 --
--- TOC entry 3352 (class 0 OID 0)
+-- TOC entry 3357 (class 0 OID 0)
 -- Dependencies: 4
 -- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: pg_database_owner
 --
@@ -75,7 +72,7 @@ SET default_tablespace = '';
 SET default_table_access_method = heap;
 
 --
--- TOC entry 215 (class 1259 OID 24576)
+-- TOC entry 215 (class 1259 OID 16384)
 -- Name: driver_logging; Type: TABLE; Schema: public; Owner: user
 --
 
@@ -94,15 +91,35 @@ CREATE TABLE public.driver_logging (
 ALTER TABLE public.driver_logging OWNER TO "user";
 
 --
--- TOC entry 3344 (class 0 OID 24576)
--- Dependencies: 215
--- Data for Name: driver_logging; Type: TABLE DATA; Schema: public; Owner: user
+-- TOC entry 216 (class 1259 OID 16393)
+-- Name: performance_metrics; Type: TABLE; Schema: public; Owner: user
+--
+
+CREATE TABLE public.performance_metrics (
+    id integer NOT NULL,
+    run_id character varying NOT NULL,
+    start_time integer NOT NULL,
+    time_delta integer NOT NULL,
+    pod_name character varying NOT NULL,
+    cpu_usage double precision NOT NULL,
+    ram_usage double precision NOT NULL,
+    power_usage double precision NOT NULL,
+    "interval" integer NOT NULL
+);
+
+
+ALTER TABLE public.performance_metrics OWNER TO "user";
+
+--
+-- TOC entry 3349 (class 0 OID 16393)
+-- Dependencies: 216
+-- Data for Name: performance_metrics; Type: TABLE DATA; Schema: public; Owner: user
 --
 
 
 
 --
--- TOC entry 3200 (class 2606 OID 24582)
+-- TOC entry 3204 (class 2606 OID 16390)
 -- Name: driver_logging structure_driver_logging_pk; Type: CONSTRAINT; Schema: public; Owner: user
 --
 
@@ -110,7 +127,7 @@ ALTER TABLE ONLY public.driver_logging
     ADD CONSTRAINT structure_driver_logging_pk PRIMARY KEY (id);
 
 
--- Completed on 2023-11-23 19:50:25 CET
+-- Completed on 2023-11-29 17:26:10 CET
 
 --
 -- PostgreSQL database dump complete
