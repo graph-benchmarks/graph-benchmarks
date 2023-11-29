@@ -1,11 +1,12 @@
 import sys
+from gremlin_python.process.traversal import PageRank
 import psycopg
 import psycopg.sql as sql
 import yaml
 import time
 from gremlin_python import statics
 from gremlin_python.structure.graph import Graph
-from gremlin_python.process.graph_traversal import __
+from gremlin_python.process.graph_traversal import __, out
 from gremlin_python.driver.driver_remote_connection import DriverRemoteConnection
 from gremlin_python.process.anonymous_traversal import traversal, GraphTraversalSource
 
@@ -34,15 +35,15 @@ def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str,
     cur.close()    
 
 def bfs(g: GraphTraversalSource):
-    g.V()
- 
+    g.V().repeat(out().simplePath().barrier()).until(__.not_(out()))
+
 def pr(g: GraphTraversalSource):
     # figure out what max round is?
-    g.V()
+    g.V().pageRank().with_(PageRank.propertyName, 'pageRank').values('pageRank')
 
 # weakly connected components
 def wcc(g: GraphTraversalSource):
-    g.V()
+    g.V().connectedComponent().group().by('componentId')
 
 # community detection using label propagation
 def cdlp(g: GraphTraversalSource):
@@ -54,7 +55,7 @@ def lcc(g: GraphTraversalSource):
 
 # single source shortest paths
 def sssp(g: GraphTraversalSource):
-    g.V()
+    g.V().shortestPath()
 
 def main():
     # functional arguments position for the program
@@ -100,7 +101,7 @@ def main():
         quit(1)
     
     g = traversal().withRemote(sess)
-    check_table(conn)
+    check_table(conn) 
     #duration = load_data(g, vertex_file, edge_file)
     #log_metrics_sql(conn, load_id, algo, dataset, "loading", duration)
 

@@ -29,16 +29,16 @@ def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str,
     cur.close()    
 
 def bfs(url:str):
-    query = "hugegraph.traversal().V('1:marko')"
+    query = "hugegraph.traversal().V().repeat(out().simplePath().barrier()).until(__.not(out()))"
     r = requests.get(f"{url}?gremlin={query}") 
 
 def pr(url:str):
-    query = "hugegraph.traversal().V('1:marko')"
+    query = "hugegraph.traversal().V().pageRank().with_(PageRank.propertyName,'pageRank').values('pageRank')"
     r = requests.get(f"{url}?gremlin={query}")
 
 # weakly connected components
 def wcc(url:str):
-    query = "hugegraph.traversal().V('1:marko')"
+    query = "hugegraph.traversal().V().connectedComponent().group().by('componentId')"
     r = requests.get(f"{url}?gremlin={query}")
 
 # community detection using label propagation
@@ -53,7 +53,7 @@ def lcc(url:str):
 
 # single source shortest paths
 def sssp(url:str):
-    query = "hugegraph.traversal().V('1:marko')"
+    query = "hugegraph.traversal().V().shortesPath()"
     r = requests.get(f"{url}?gremlin={query}")
 
 def main():
