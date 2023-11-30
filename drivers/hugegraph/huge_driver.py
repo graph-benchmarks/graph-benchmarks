@@ -12,19 +12,29 @@ def check_table(conn: psycopg.Connection)->None:
     ret = cur.execute(query)
     
     if not ret.fetchone()[0]:
-        query = sql.SQL("CREATE TABLE gn_test(id INTEGER, algo VARCHAR(256), dataset VARCHAR(256), type VARCHAR(256), time INTEGER)")  cur.execute(query)
- 
+        query = sql.SQL("CREATE TABLE gn_test(id INTEGER, algo VARCHAR(256), dataset VARCHAR(256), type VARCHAR(256), time INTEGER, vertex INTEGER, edge INTEGER)")  
+    cur.execute(query)
     conn.commit()       
     cur.close()
 
-def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str, type_:str, time:float)->None:
-    columns = ["id", "algo", "dataset", "type", "time"]
+def graph_vertex_count(url:str)->int:
+    query = "hugegraph.traversal().V().count()"
+    r = requests.get(f"{url}?gremlin={query}")
+    return 0
+
+def graph_edge_count(url:str)->int:
+    query = "hugegraph.traversal().E().count()"
+    r = requests.get(f"{url}?gremlin={query}")
+    return 0
+
+def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str, type_:str, time:float, vertex:int, edge:int)->None:
+    columns = ["id", "algo", "dataset", "type", "time", "vertex", "edge"]
     cur = conn.cursor()
     query = sql.SQL("INSERT INTO gn_test ({}) VALUES ({})").format(
             sql.SQL(', ').join(map(sql.Identifier, columns)),
             sql.SQL(', ').join(sql.Placeholder() * len(columns)))
 
-    cur.execute(query, (log_id, algo, dataset, type_, time))
+    cur.execute(query, (log_id, algo, dataset, type_, time, vertex, edge))
     conn.commit()
     cur.close()    
 
@@ -61,16 +71,15 @@ def main():
     # config_file_path id1 id2 algorithm dataset log_file
     
     config_yml = sys.argv[1]
-    load_id = int(sys.argv[2])
-    compute_id = int(sys.argv[3])
-    algo = sys.argv[4]
-    dataset = sys.argv[5]
-    log_file = sys.argv[6]
-
-    lf = open(log_file, "w+")
-
+    
     with open(config_yml, 'r') as yml_file:
         configs = yaml.safe_load(yml_file)
+     
+    id_ = int(configs["config"]["id"])
+    algo = configs["config"]["algo"]
+
+    log_file = configs["config"]["log_file"]
+    lf = open(log_file, "w+")
 
     huge_host = configs["platform"]["host"]
     huge_port = configs["platform"]["port"]
@@ -82,9 +91,10 @@ def main():
     user_ps = configs["postgres"]["ps"]
     pg_user = configs["postgres"]["user"]
 
-    vertex_file = configs["dataset"][dataset]["vertex"]
-    edge_file = configs["dataset"][dataset]["edges"] 
-    
+    vertex_file = configs["dataset"]["vertex"]
+    edge_file = configs["dataset"]["edges"] 
+    dataset = configs["dataset"]["name"]
+
     try:
         conn = psycopg.connect(f"postgresql://{pg_user}:{user_ps}@{pg_host}:{pg_port}/{pg_db}")
     except:
@@ -95,6 +105,9 @@ def main():
     check_table(conn)
     #duration = load_data(g, vertex_file, edge_file)
     #log_metrics_sql(conn, load_id, algo, dataset, "loading", duration)
+    
+    vertex = graph_vertex_count(url)
+    edge = graph_edge_count(url)
 
     func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
 
@@ -103,7 +116,7 @@ def main():
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
 
     duration = end_time - start_time
-    log_metrics_sql(conn, compute_id, algo, dataset, "runtime", duration)
+    log_metrics_sql(conn, id_, algo, dataset, "runtime", duration, vertex, edge)
 
     lf.close()
     conn.close()
