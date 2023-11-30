@@ -3,6 +3,7 @@ import os
 import time
 
 from generate_histograms import generate_histograms
+from generate_line_graph import generate_line_graph
 
 # DB connection & credential variables.
 db_host = os.environ.get("POSTGRES_HOST")
@@ -19,6 +20,8 @@ output_directory = "/app/results/"
 # defined yet.
 select_log_id = os.environ.get("SELECT_LOG_ID")
 print(f"Selecting data of log id: {select_log_id}")
+
+lines_dataset = os.environ.get("GENERATE_LINES_DATASET")
 
 def main():
     try:
@@ -42,7 +45,9 @@ def main():
         # Fetch the results and iterate over them. Group first per logged algorithm
         # and then per dataset for the specific algorithm.
         rows = cursor.fetchall() 
+        
         generate_histograms(rows, output_directory, select_log_id)
+        generate_line_graph(rows, output_directory, select_log_id, lines_dataset)
         
 
     except psycopg2.Error as error:
