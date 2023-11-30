@@ -93,7 +93,7 @@ async fn setup_master_node(
     let master_hosts = HashMap::from([("master", Item { hosts, vars })]);
     fs::write(master_hosts_file, serde_yaml::to_string(&master_hosts)?).await?;
 
-    let registry_file = Path::new("k3s/data/k3s_registry.yaml");
+    let registry_file = Path::new("k3s/data/k3s_registry_config.yaml");
     if !registry_file.exists() {
         fs::write(registry_file, "").await?;
     }
@@ -112,7 +112,7 @@ async fn setup_master_node(
             endpoint: vec![format!("http://{}:30000", connect_args.master_ip)],
         },
     );
-    fs::write(registry_file, serde_yaml::to_string(&registry_cfg)?).await?;
+    fs::write("k3s/data/k3s_registry.yaml", serde_yaml::to_string(&registry_cfg)?).await?;
 
     let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
     if verbose {

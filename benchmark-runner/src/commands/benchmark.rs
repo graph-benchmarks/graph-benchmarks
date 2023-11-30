@@ -95,9 +95,9 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
         exit!("", "Unknown platform {}", config.setup.platform)
     };
 
-    setup_db(&connect_args.master_ip)?;
+    setup_db(connect_args.master_ip.clone())?;
     let mut connection = AsyncPgConnection::establish(&format!(
-        "postgres://postgres:postgres@{}:30002/postgres",
+        "postgres://postgres:graph_benchmarks@{}:30002/postgres",
         connect_args.master_ip
     ))
     .await?;
@@ -116,6 +116,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 None => exit!("", "Could not find driver {}", driver),
             };
 
+            driver_config.set_node_config(n_nodes, 2, 1024).await?;
             setup_graph_platform(&driver, &connect_args, cli.verbose).await?;
             let service_ip = driver_config.get_service_ip().await?;
             let pod_ids = driver_config.metrics_pod_ids().await?;
@@ -125,7 +126,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     host: "postgres".into(),
                     db: "postgres".into(),
                     user: "postgres".into(),
-                    port: 5432,
+                    port: 30002,
                     ps: "graph_benchmarks".into(),
                 },
                 platform: PlatformConfig {
@@ -470,22 +471,21 @@ async fn setup_pv_and_pvc() -> Result<()> {
     Ok(())
 }
 
-fn setup_db(master_ip: &IpAddr) -> Result<()> {
-    let mut connection = AsyncConnectionWrapper::<AsyncPgConnection>::establish(&format!(
-        "postgres://postgres:postgres@{}:30002/postgres",
-        master_ip
-    ))?;
-    connection.run_pending_migrations(MIGRATIONS).unwrap();
+fn setup_db(master_ip: IpAddr) -> Result<()> {
+    std::thread::spawn(move || {
+        let mut connection = AsyncConnectionWrapper::<AsyncPgConnection>::establish(&format!(
+            "postgres://postgres:graph_benchmarks@{}:30002/postgres",
+            master_ip
+        )).unwrap();
+        connection.run_pending_migrations(MIGRATIONS).unwrap();
+    }).join().unwrap();
     Ok(())
 }
 
 async fn get_run_id(conn: &mut AsyncPgConnection, n_nodes: usize) -> Result<i32> {
-    use crate::schema::benchmarks;
+    use crate::schema::benchmarks::{self, dsl::*};
     let b: Benchmark = diesel::insert_into(benchmarks::table)
-        .values(Benchmark {
-            id: 0,
-            nodes: n_nodes as i32,
-        })
+        .values(nodes.eq(n_nodes as i32))
         .returning(Benchmark::as_returning())
         .get_result(conn)
         .await?;

@@ -8,7 +8,7 @@
 
     - name: Build image
       become: true
-      ansible.builtin.shell: "docker build -t {{ ansible_ssh_host }}:30000/benches/{{ driver }} ."
+      ansible.builtin.shell: "cd {{ driver }} && docker build -t {{ ansible_ssh_host }}:30000/benches/{{ driver }} ."
 
     - name: Push image
       become: true
