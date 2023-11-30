@@ -18,3 +18,4 @@ graphs/db_volume
 graphs/results
 graphs/venv
 .env
+__pycache__/
