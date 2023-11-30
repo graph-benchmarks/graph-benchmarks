@@ -3,8 +3,8 @@
   tasks:
     - name: Add helm repo
       kubernetes.core.helm_repository:
-        name: kubernetes-dashboard
-        repo_url: https://kubernetes.github.io/dashboard/
+        name: graphscope
+        repo_url: https://graphscope.oss-cn-beijing.aliyuncs.com/charts/
 
     - name: UnInstall graphscope
       kubernetes.core.helm:

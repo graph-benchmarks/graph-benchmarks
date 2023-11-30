@@ -1,21 +1,25 @@
+---
 apiVersion: v1
 kind: PersistentVolume
 metadata:
   name: postgres-pv
+  labels:
+    type: local
 spec:
+  storageClassName: manual
   capacity:
-    storage: 1Gi 
+    storage: 10Gi
+  persistentVolumeReclaimPolicy: Retain
   accessModes:
-    - ReadWriteOnce 
-  persistentVolumeReclaimPolicy: Retain 
-  gcePersistentDisk: 
-    pdName: postgres-disk
-    fsType: ext4 
+    - ReadWriteOnce
+  hostPath:
+    path: /postgres-pv
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
+  namespace: default
 spec:
   accessModes:
     - ReadWriteOnce 
@@ -29,6 +33,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgres 
+  namespace: default
   labels:
     app: postgres
 spec:
@@ -43,6 +48,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: postgres
+  namespace: default
 spec:
   serviceName: postgres
   replicas: 1
