@@ -116,24 +116,44 @@ ALTER TABLE public.performance_metrics OWNER TO "user";
 -- Data for Name: driver_logging; Type: TABLE DATA; Schema: public; Owner: user
 --
 
-INSERT INTO public.driver_logging VALUES (1, 'algo1', 'dataset1', 2, 10, 1024, 'runtime', 5000);
-INSERT INTO public.driver_logging VALUES (2, 'algo1', 'dataset2', 2, 10, 1024, 'runtime', 4000);
-INSERT INTO public.driver_logging VALUES (3, 'algo1', 'dataset3', 2, 10, 1024, 'runtime', 4500);
-INSERT INTO public.driver_logging VALUES (4, 'algo1', 'dataset4', 2, 10, 1024, 'runtime', 2500);
-INSERT INTO public.driver_logging VALUES (5, 'algo2', 'dataset1', 2, 10, 1024, 'runtime', 4800);
-INSERT INTO public.driver_logging VALUES (6, 'algo2', 'dataset2', 2, 10, 1024, 'runtime', 4000);
-INSERT INTO public.driver_logging VALUES (7, 'algo2', 'dataset3', 2, 10, 1024, 'runtime', 5200);
-INSERT INTO public.driver_logging VALUES (8, 'algo2', 'dataset4', 2, 10, 1024, 'runtime', 3000);
-INSERT INTO public.driver_logging VALUES (9, 'algo3', 'dataset1', 2, 10, 1024, 'runtime', 5400);
-INSERT INTO public.driver_logging VALUES (10, 'algo3', 'dataset2', 2, 10, 1024, 'runtime', 4500);
-INSERT INTO public.driver_logging VALUES (11, 'algo3', 'dataset3', 2, 10, 1024, 'runtime', 4800);
-INSERT INTO public.driver_logging VALUES (12, 'algo3', 'dataset4', 2, 10, 1024, 'runtime', 3500);
-INSERT INTO public.driver_logging VALUES (13, 'algo4', 'dataset1', 2, 10, 1024, 'runtime', 4500);
-INSERT INTO public.driver_logging VALUES (14, 'algo4', 'dataset2', 2, 10, 1024, 'runtime', 3800);
-INSERT INTO public.driver_logging VALUES (15, 'algo4', 'dataset3', 2, 10, 1024, 'runtime', 4200);
-INSERT INTO public.driver_logging VALUES (16, 'algo4', 'dataset4', 2, 10, 1024, 'runtime', 2400);
+INSERT INTO public.driver_logging VALUES (1, 'algo1', 'dataset1', 2, 8, 1024, 'runtime', 5000);
+INSERT INTO public.driver_logging VALUES (2, 'algo1', 'dataset2', 2, 8, 1024, 'runtime', 4000);
+INSERT INTO public.driver_logging VALUES (3, 'algo1', 'dataset3', 2, 8, 1024, 'runtime', 4500);
+INSERT INTO public.driver_logging VALUES (4, 'algo1', 'dataset4', 2, 8, 1024, 'runtime', 2500);
+INSERT INTO public.driver_logging VALUES (5, 'algo2', 'dataset1', 2, 8, 1024, 'runtime', 4800);
+INSERT INTO public.driver_logging VALUES (6, 'algo2', 'dataset2', 2, 8, 1024, 'runtime', 4000);
+INSERT INTO public.driver_logging VALUES (7, 'algo2', 'dataset3', 2, 8, 1024, 'runtime', 5200);
+INSERT INTO public.driver_logging VALUES (8, 'algo2', 'dataset4', 2, 8, 1024, 'runtime', 3000);
+INSERT INTO public.driver_logging VALUES (9, 'algo3', 'dataset1', 2, 8, 1024, 'runtime', 5400);
+INSERT INTO public.driver_logging VALUES (10, 'algo3', 'dataset2', 2, 8, 1024, 'runtime', 4500);
+INSERT INTO public.driver_logging VALUES (11, 'algo3', 'dataset3', 2, 8, 1024, 'runtime', 4800);
+INSERT INTO public.driver_logging VALUES (12, 'algo3', 'dataset4', 2, 8, 1024, 'runtime', 3500);
+INSERT INTO public.driver_logging VALUES (13, 'algo4', 'dataset1', 2, 8, 1024, 'runtime', 4500);
+INSERT INTO public.driver_logging VALUES (14, 'algo4', 'dataset2', 2, 8, 1024, 'runtime', 3800);
+INSERT INTO public.driver_logging VALUES (15, 'algo4', 'dataset3', 2, 8, 1024, 'runtime', 4200);
+INSERT INTO public.driver_logging VALUES (16, 'algo4', 'dataset4', 2, 8, 1024, 'runtime', 2400);
 
+-- Insert multiple results for dataset1 on various worker counts.
 
+INSERT INTO public.driver_logging VALUES (17, 'algo1', 'dataset1', 2, 1, 1024, 'runtime', 8200);
+INSERT INTO public.driver_logging VALUES (18, 'algo1', 'dataset1', 2, 2, 1024, 'runtime', 9000);
+INSERT INTO public.driver_logging VALUES (20, 'algo1', 'dataset1', 2, 4, 1024, 'runtime', 7500);
+INSERT INTO public.driver_logging VALUES (21, 'algo1', 'dataset1', 2, 16, 1024, 'runtime', 4800);
+
+INSERT INTO public.driver_logging VALUES (22, 'algo2', 'dataset1', 2, 1, 1024, 'runtime', 8000);
+INSERT INTO public.driver_logging VALUES (23, 'algo2', 'dataset1', 2, 2, 1024, 'runtime', 9500);
+INSERT INTO public.driver_logging VALUES (24, 'algo2', 'dataset1', 2, 4, 1024, 'runtime', 7800);
+INSERT INTO public.driver_logging VALUES (25, 'algo2', 'dataset1', 2, 16, 1024, 'runtime', 5200);
+
+INSERT INTO public.driver_logging VALUES (26, 'algo3', 'dataset1', 2, 1, 1024, 'runtime', 7900);
+INSERT INTO public.driver_logging VALUES (27, 'algo3', 'dataset1', 2, 2, 1024, 'runtime', 9400);
+INSERT INTO public.driver_logging VALUES (28, 'algo3', 'dataset1', 2, 4, 1024, 'runtime', 7900);
+INSERT INTO public.driver_logging VALUES (29, 'algo3', 'dataset1', 2, 16, 1024, 'runtime', 5000);
+
+INSERT INTO public.driver_logging VALUES (30, 'algo4', 'dataset1', 2, 1, 1024, 'runtime', 7900);
+INSERT INTO public.driver_logging VALUES (31, 'algo4', 'dataset1', 2, 2, 1024, 'runtime', 8600);
+INSERT INTO public.driver_logging VALUES (32, 'algo4', 'dataset1', 2, 4, 1024, 'runtime', 7400);
+INSERT INTO public.driver_logging VALUES (33, 'algo4', 'dataset1', 2, 16, 1024, 'runtime', 3600);
 --
 -- TOC entry 3349 (class 0 OID 16393)
 -- Dependencies: 216
