@@ -12,6 +12,12 @@ use common::{
     exit,
     provider::PlatformInfo,
 };
+use diesel::prelude::*;
+use diesel_async::{
+    async_connection_wrapper::AsyncConnectionWrapper, AsyncConnection, AsyncPgConnection,
+    RunQueryDsl,
+};
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use futures_util::{StreamExt, TryStreamExt};
 use k8s_openapi::{
     api::core::v1::{
@@ -23,31 +29,58 @@ use k8s_openapi::{
 };
 use kube::{
     api::{DeleteParams, ListParams, PostParams},
-    runtime::{watcher, WatchStreamExt},
+    runtime::{
+        conditions::is_pod_running,
+        wait::{await_condition, Condition},
+        watcher, WatchStreamExt,
+    },
     Api, Client, ResourceExt,
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
-use crate::args::Cli;
+use crate::{
+    args::Cli,
+    metrics_utils::{start_recording, stop_recording},
+    model::Benchmark,
+};
 
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 const ALGORITHMS: &[&str] = &["bfs", "pr", "wcc", "cdlp", "lcc", "sssp"];
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct Run {
+    dataset: String,
+    algorithm: String,
+    run_id: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PlatformConfig {
+    host: String,
+    port: u16,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DatasetConfig {
+    vertex: String,
+    edges: String,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DriverConfig {
     postgres: PostgresConfig,
-    ip: String,
-    dataset: String,
-    output_path: String,
-    algo: String,
+    platform: PlatformConfig,
+    dataset: HashMap<String, DatasetConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PostgresConfig {
-    ip: String,
+    host: String,
+    port: u32,
     db: String,
     user: String,
-    password: String,
+    ps: String,
 }
 
 pub async fn run_benchmark(cli: &Cli) -> Result<()> {
@@ -62,8 +95,17 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
         exit!("", "Unknown platform {}", config.setup.platform)
     };
 
+    setup_db(&connect_args.master_ip)?;
+    let mut connection = AsyncPgConnection::establish(&format!(
+        "postgres://postgres:postgres@{}:30002/postgres",
+        connect_args.master_ip
+    ))
+    .await?;
+
     env::set_var("KUBECONFIG", "k3s/kube-config");
     setup_pv_and_pvc().await?;
+
+    let mut runs: Vec<Run> = Vec::new();
 
     config.setup.node_configs.sort_by(|a, b| b.cmp(a));
     for n_nodes in config.setup.node_configs {
@@ -74,19 +116,23 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 None => exit!("", "Could not find driver {}", driver),
             };
 
-            setup_driver(&driver, &connect_args, cli.verbose).await?;
+            setup_graph_platform(&driver, &connect_args, cli.verbose).await?;
             let service_ip = driver_config.get_service_ip().await?;
+            let pod_ids = driver_config.metrics_pod_ids().await?;
+
             let mut cfg = DriverConfig {
                 postgres: PostgresConfig {
-                    ip: "postgres".to_owned(),
-                    db: "postgres".to_owned(),
-                    user: "postgres".to_owned(),
-                    password: "graph_benchmarks".to_owned(),
+                    host: "postgres".into(),
+                    db: "postgres".into(),
+                    user: "postgres".into(),
+                    port: 5432,
+                    ps: "graph_benchmarks".into(),
                 },
-                ip: service_ip,
-                dataset: "".into(),
-                output_path: "/attached".into(),
-                algo: "".into(),
+                platform: PlatformConfig {
+                    host: service_ip.0,
+                    port: service_ip.1,
+                },
+                dataset: HashMap::new(),
             };
 
             for dataset in &config.benchmark.datasets {
@@ -96,11 +142,37 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>(),
                 ) {
-                    cfg.dataset = dataset.clone();
-                    cfg.algo = algorithm.clone();
+                    cfg.dataset = HashMap::from([(
+                        dataset.clone(),
+                        DatasetConfig {
+                            vertex: "".into(),
+                            edges: "".into(),
+                        },
+                    )]);
                     info!("{cfg:#?}");
 
-                    let bench_pod = start_bench(&driver, &connect_args.master_ip, &cfg).await?;
+                    let run_id = get_run_id(&mut connection, n_nodes).await?;
+                    runs.push(Run {
+                        run_id,
+                        dataset: dataset.clone(),
+                        algorithm: algorithm.clone(),
+                    });
+
+                    let bench_pod =
+                        start_bench(&driver, &connect_args.master_ip, &cfg, run_id).await?;
+                    let metrics_ip = format!("{}:30001", connect_args.master_ip);
+                    start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
+
+                    let client = Client::try_default().await?;
+                    let api: Api<Pod> = Api::default_namespaced(client);
+                    await_condition(
+                        api,
+                        &bench_pod.metadata.name.unwrap(),
+                        is_pod_running().not(),
+                    )
+                    .await?;
+
+                    stop_recording(metrics_ip, pod_ids.clone(), run_id).await?;
                     return Ok(());
                 }
             }
@@ -173,7 +245,11 @@ async fn remove_driver(driver: &str, connect_args: &PlatformInfo, verbose: bool)
     .await
 }
 
-async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
+async fn setup_graph_platform(
+    name: &str,
+    connect_args: &PlatformInfo,
+    verbose: bool,
+) -> Result<()> {
     let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
     if verbose {
         env.insert("DEBUG_ANSIBLE", "1");
@@ -244,7 +320,7 @@ async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) ->
     }
 
     finish_progress(
-        "Driver ready",
+        "Platform ready",
         &format!("drivers/{name}"),
         start.elapsed(),
         Some(pb),
@@ -252,7 +328,7 @@ async fn setup_driver(name: &str, connect_args: &PlatformInfo, verbose: bool) ->
     Ok(())
 }
 
-async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result<Pod> {
+async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig, run_id: i32) -> Result<Pod> {
     let client = Client::try_default().await?;
 
     let default_pp = PostParams {
@@ -283,7 +359,7 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result
     pod_spec.metadata.name = Some(pod_name.clone());
     pod_spec.spec = Some(PodSpec {
         containers: vec![Container {
-            args: Some(vec!["/cfg/config.yaml".into()]),
+            args: Some(vec!["/cfg/config.yaml".into(), run_id.to_string()]),
             image: Some(format!("{}:30000/benches/{}:latest", host_ip, name)),
             name: format!("{}-bench", name).into(),
             volume_mounts: Some(vec![
@@ -392,4 +468,26 @@ async fn setup_pv_and_pvc() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn setup_db(master_ip: &IpAddr) -> Result<()> {
+    let mut connection = AsyncConnectionWrapper::<AsyncPgConnection>::establish(&format!(
+        "postgres://postgres:postgres@{}:30002/postgres",
+        master_ip
+    ))?;
+    connection.run_pending_migrations(MIGRATIONS).unwrap();
+    Ok(())
+}
+
+async fn get_run_id(conn: &mut AsyncPgConnection, n_nodes: usize) -> Result<i32> {
+    use crate::schema::benchmarks;
+    let b: Benchmark = diesel::insert_into(benchmarks::table)
+        .values(Benchmark {
+            id: 0,
+            nodes: n_nodes as i32,
+        })
+        .returning(Benchmark::as_returning())
+        .get_result(conn)
+        .await?;
+    Ok(b.id)
 }

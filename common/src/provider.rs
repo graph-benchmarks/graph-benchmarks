@@ -25,13 +25,9 @@ pub struct PlatformInfo {
 
 #[async_trait::async_trait]
 pub trait Platform {
-    async fn pre_setup(self: &Self, setup_args: &SetupArgs, verbose: bool) -> Result<()>;
-    async fn setup(self: &Self, setup_args: &SetupArgs, verbose: bool) -> Result<()>;
-    async fn platform_info(
-        self: &Self,
-        setup_args: &SetupArgs,
-        verbose: bool,
-    ) -> Result<PlatformInfo>;
-    async fn destroy(self: &Self, setup_args: &SetupArgs, verbose: bool) -> Result<()>;
-    fn name(self: &Self) -> String;
+    async fn pre_setup(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()>;
+    async fn setup(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()>;
+    async fn platform_info(&self, setup_args: &SetupArgs, verbose: bool) -> Result<PlatformInfo>;
+    async fn destroy(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()>;
+    fn name(&self) -> String;
 }
