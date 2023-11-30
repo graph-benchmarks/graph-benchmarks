@@ -7,7 +7,7 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 mod args;
 mod commands;
-mod metrics;
+mod rpc;
 mod metrics_utils;
 mod model;
 mod schema;
