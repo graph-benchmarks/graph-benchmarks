@@ -6,19 +6,20 @@ use crate::metrics::{
     StopRecordingRequest,
 };
 
-pub async fn start_recording(ip: String, pod_ids: Vec<String>) -> Result<()> {
+pub async fn start_recording(ip: String, pod_ids: Vec<String>, run_id: i32) -> Result<()> {
     let mut client = PerformanceMetricsServiceClient::connect(ip).await?;
     let req = Request::new(StartRecordingRequest {
         pod_ids,
-        interval: 1.0,
+        interval: 100.0,
+        run_id,
     });
     client.start_recording(req).await?;
     Ok(())
 }
 
-pub async fn stop_recording(ip: String, pod_ids: Vec<String>) -> Result<()> {
+pub async fn stop_recording(ip: String, pod_ids: Vec<String>, run_id: i32) -> Result<()> {
     let mut client = PerformanceMetricsServiceClient::connect(ip).await?;
-    let req = Request::new(StopRecordingRequest { pod_ids });
+    let req = Request::new(StopRecordingRequest { pod_ids, run_id });
     client.stop_recording(req).await?;
     Ok(())
 }

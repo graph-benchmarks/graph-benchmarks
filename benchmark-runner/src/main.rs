@@ -9,6 +9,8 @@ mod args;
 mod commands;
 mod metrics;
 mod metrics_utils;
+mod model;
+mod schema;
 
 #[tokio::main]
 async fn main() -> Result<()> {
