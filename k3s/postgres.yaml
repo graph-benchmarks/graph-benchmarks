@@ -1,0 +1,26 @@
+- name: Postgres helm setup
+  hosts: master
+  tasks:
+    - name: Add postgres repo
+      kubernetes.core.helm_repository:
+        name: graphscope
+        repo_url: https://graphscope.oss-cn-beijing.aliyuncs.com/charts/
+
+    - name: Add helm repo
+      kubernetes.core.helm_repository:
+        name: bitnami
+        repo_url: https://charts.bitnami.com/bitnami
+
+    - name: Copy chart values
+      ansible.builtin.copy:
+        src: data/postgres.yaml
+        dest: $HOME/postgres.yaml
+        mode: 'g+w'
+
+    - name: Install postgres
+      kubernetes.core.helm:
+        name: postgresql
+        release_namespace: default
+        chart_ref: bitnami/postgresql
+        values_files:
+          - postgres.yaml

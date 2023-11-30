@@ -1,44 +1,46 @@
 use std::{collections::HashMap, net::IpAddr};
 
-use log::info;
-use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::exit;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Config {
-    pub setup: Setup,
+    pub setup: SetupArgs,
+    pub kubernetes: Option<KubeSetup>,
     pub benchmark: Benchmark,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Setup {
-    PreConfiguredPlatform(PlatformConnectInfo),
-    Platform(PlatformArgs),
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlatformConnectInfo {
     pub private_key_file: String,
-    pub ips: Vec<IpAddr>,
+    pub master_ip: IpAddr,
+    pub worker_ips: Vec<IpAddr>,
     pub host_username: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct PlatformArgs {
+pub struct SetupArgs {
     pub host_username: Option<String>,
     pub platform: String,
+    pub provider: String,
     pub node_configs: Vec<usize>,
-    pub master_platform_env: Option<HashMap<String, String>>,
-    pub worker_platform_env: Option<HashMap<String, String>>,
+    pub master_platform: Option<HashMap<String, String>>,
+    pub worker_platform: Option<HashMap<String, String>>,
+    pub platform_args: Option<HashMap<String, String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct KubeSetup {
+    pub dashboard: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Benchmark {
     pub drivers: Vec<String>,
-    pub datasets: Option<Vec<String>>,
+    pub datasets: Vec<String>,
     pub algorithms: Option<Vec<String>>,
 }
 

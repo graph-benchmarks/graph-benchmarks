@@ -1,0 +1,16 @@
+[package]
+name = "base-provider"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies.macros]
+path = "../../macros"
+
+[dependencies.common]
+path = "../../common"
+
+[dependencies.terraform]
+path = "../terraform"
+
+[dependencies.vagrant]
+path = "../vagrant"

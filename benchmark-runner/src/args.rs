@@ -20,10 +20,14 @@ pub struct Cli {
 pub enum Commands {
     /// Setup platform & kubernetes
     Setup(SetupArgs),
-    /// Run benchmark
+    /// Run benchmarks
     Benchmark(BenchmarkArgs),
     /// Teardown platform & kubernetes
-    Destroy
+    Destroy,
+    /// List Resources
+    Ls,
+    /// Port forward dashboard
+    Dashboard,
 }
 
 #[derive(Debug, Args)]
@@ -34,5 +38,4 @@ pub struct SetupArgs {
 }
 
 #[derive(Debug, Args)]
-pub struct BenchmarkArgs {
-}
+pub struct BenchmarkArgs {}

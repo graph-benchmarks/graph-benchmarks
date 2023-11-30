@@ -1,0 +1,12 @@
+- hosts: master
+  tasks:
+    - ansible.builtin.debug:
+        msg: master setup
+
+- name: Setup master
+  ansible.builtin.import_playbook: master.yaml
+- name: Setup postgres
+  ansible.builtin.import_playbook: postgres.yaml
+- name: Setup dashboard
+  when: dashboard is defined
+  ansible.builtin.import_playbook: dashboard.yaml
