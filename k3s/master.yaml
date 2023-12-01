@@ -12,7 +12,7 @@
       block:
         - name: Install k3s
           become: true
-          ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -s - --write-kubeconfig-mode 644 --node-name master --node-external-ip {{ ansible_ssh_host }}
+          ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -s - --disable traefik --write-kubeconfig-mode 644 --node-name master --node-external-ip {{ ansible_ssh_host }}
 
         - name: Install helm
           ansible.builtin.shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
@@ -89,21 +89,17 @@
         state: restarted
         name: docker
 
-    - name: Custom registry config
+    - name: Copy k3s_registry.yaml 
+      ansible.builtin.copy:
+        src: data/k3s_registry.yaml
+        dest: /etc/rancher/k3s/registries.yaml
+        mode: 'g+w'
+
+    - name: Restart k3s
       become: true
-      when: "'data/k3s_registry.yaml' is file"
-      block:
-        - name: Copy k3s_registry.yaml 
-          ansible.builtin.copy:
-            src: data/k3s_registry.yaml
-            dest: /etc/rancher/k3s/registries.yaml
-            mode: 'g+w'
+      ansible.builtin.systemd:
+        state: restarted
+        name: k3s
 
-        - name: Restart k3s
-          become: true
-          ansible.builtin.systemd:
-            state: restarted
-            name: k3s
-
-        - name: Wait for all k3s nodes to be ready
-          ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s
+    - name: Wait for all k3s nodes to be ready
+      ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s
