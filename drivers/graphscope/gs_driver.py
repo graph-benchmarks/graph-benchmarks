@@ -1,10 +1,10 @@
+import pandas as pd
 import sys
 import graphscope as gs
 import psycopg
 import psycopg.sql as sql
 import yaml
 import time
-from graphscope.framework import loader
 from graphscope.framework.graph import Graph, GraphDAGNode
 from graphscope.nx.classes.function import number_of_edges, number_of_nodes
 
@@ -38,20 +38,21 @@ def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str,
     conn.commit()
     cur.close()
 
-def load_data(g: Graph | GraphDAGNode, vertex_file:str, edge_file:str)->int:
+def load_data(g: Graph | GraphDAGNode, vertex_file:str, edge_file:str):
     """
-    Returns loading time
+    Returns loading time, loaded graph, vertex number, edge_number
     """
-    v = loader.Loader(f"file://{vertex_file}", header_row=False)
-    e = loader.Loader(f"file://{edge_file}", header_row=False)
+    #v = loader.Loader(f"file://{vertex_file}", header_row=False)
+    #e = loader.Loader(f"file://{edge_file}", header_row=False)
 
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    g = g.add_vertices(v, 'vertex')
-    g = g.add_edges(e, 'edges')
+    df_v = pd.read_csv(vertex_file, header=None, names="vertex")
+    df_e = pd.read_csv(edge_file, header=None, names=["src","dst"])
+    g = g.add_vertices(df_v).add_edges(df_e)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
 
     duration = end_time - start_time
-    return duration
+    return duration, g, len(df_v), len(df_e)
     
 
 def bfs(g):
@@ -124,9 +125,10 @@ def main():
     g = sess.g()
     
     check_table(conn)
-    duration = load_data(g, vertex_file, edge_file)
-    vertex = graph_vertex_count(g)
-    edge = graph_edge_count(g)
+    [duration, g, vertex, edge] = load_data(g, vertex_file, edge_file)
+    
+    #vertex = graph_vertex_count(g)
+    #edge = graph_edge_count(g)
 
     log_metrics_sql(conn, id_, algo, dataset, "loading", duration, vertex, edge)
 
