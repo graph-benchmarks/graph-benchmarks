@@ -16,7 +16,10 @@ pub async fn start_recording(ip: String, pod_ids: Vec<String>, run_id: i32) -> R
 
 pub async fn stop_recording(ip: String, pod_ids: Vec<String>, run_id: i32) -> Result<()> {
     let mut client = MetricsCollectorClient::connect(ip).await?;
-    let req = Request::new(Stop { pod_ids, run_id: run_id.into() });
+    let req = Request::new(Stop {
+        pod_ids,
+        run_id: run_id.into(),
+    });
     client.stop_recording(req).await?;
     Ok(())
 }

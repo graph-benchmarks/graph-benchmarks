@@ -146,8 +146,8 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     cfg.dataset = HashMap::from([(
                         dataset.clone(),
                         DatasetConfig {
-                            vertex: "".into(),
-                            edges: "".into(),
+                            vertex: format!("/attached/{dataset}.v"),
+                            edges: format!("/attached/{dataset}.e"),
                         },
                     )]);
                     info!("{cfg:#?}");
@@ -158,6 +158,8 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         dataset: dataset.clone(),
                         algorithm: algorithm.clone(),
                     });
+
+                    copy_dataset(dataset, &format!("{driver}-bench"), cli.verbose).await?;
 
                     let bench_pod =
                         start_bench(&driver, &connect_args.master_ip, &cfg, run_id).await?;
@@ -476,9 +478,12 @@ fn setup_db(master_ip: IpAddr) -> Result<()> {
         let mut connection = AsyncConnectionWrapper::<AsyncPgConnection>::establish(&format!(
             "postgres://postgres:graph_benchmarks@{}:30002/postgres",
             master_ip
-        )).unwrap();
+        ))
+        .unwrap();
         connection.run_pending_migrations(MIGRATIONS).unwrap();
-    }).join().unwrap();
+    })
+    .join()
+    .unwrap();
     Ok(())
 }
 
@@ -490,4 +495,26 @@ async fn get_run_id(conn: &mut AsyncPgConnection, n_nodes: usize) -> Result<i32>
         .get_result(conn)
         .await?;
     Ok(b.id)
+}
+
+async fn copy_dataset(dataset: &str, pod_name: &str, verbose: bool) -> Result<()> {
+    command(
+        "krsync.sh",
+        &[
+            "-av",
+            "--progress",
+            "--stats",
+            &format!("../datasets/{dataset}/"),
+            &format!("{pod_name}:/attached"),
+        ],
+        verbose,
+        [
+            "Copying dataset",
+            "Could not copy dataset",
+            "Done copying dataset",
+        ],
+        "k3s",
+        HashMap::<&str, &str>::new(),
+    )
+    .await
 }

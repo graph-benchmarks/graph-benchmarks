@@ -112,7 +112,11 @@ async fn setup_master_node(
             endpoint: vec![format!("http://{}:30000", connect_args.master_ip)],
         },
     );
-    fs::write("k3s/data/k3s_registry.yaml", serde_yaml::to_string(&registry_cfg)?).await?;
+    fs::write(
+        "k3s/data/k3s_registry.yaml",
+        serde_yaml::to_string(&registry_cfg)?,
+    )
+    .await?;
 
     let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
     if verbose {
