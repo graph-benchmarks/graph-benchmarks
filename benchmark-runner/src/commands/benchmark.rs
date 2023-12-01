@@ -159,6 +159,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>(),
                 ) {
+                    let pb = progress(&format!("Benchmarking ({algorithm} on {dataset})"));
                     let run_id = get_run_id(&mut connection, n_nodes).await?;
                     runs.push(Run {
                         run_id,
@@ -175,6 +176,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     cfg.config.id = run_id;
                     info!("{cfg:#?}");
 
+                    let start = Instant::now();
                     let bench_pod = start_bench(&driver, &connect_args.master_ip, &cfg).await?;
                     let metrics_ip = format!("{}:30001", connect_args.master_ip);
                     start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
@@ -189,7 +191,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     .await?;
 
                     stop_recording(metrics_ip, pod_ids.clone(), run_id).await?;
-                    return Ok(());
+                    finish_progress("Done benchmarking", &format!("({algorithm} on {dataset})"), start.elapsed(), Some(pb));
                 }
             }
 

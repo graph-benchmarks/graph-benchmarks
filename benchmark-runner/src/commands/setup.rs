@@ -20,10 +20,20 @@ struct ImageConfig<'a> {
     path: &'a str,
 }
 
-const STANDARD_IMAGES: &[ImageConfig] = &[ImageConfig {
-    name: "rsync",
-    path: "rsync",
-}];
+const STANDARD_IMAGES: &[ImageConfig] = &[
+    ImageConfig {
+        name: "rsync",
+        path: "rsync",
+    },
+    ImageConfig {
+        name: "metrics",
+        path: "../metrics"
+    },
+    ImageConfig {
+        name: "graphs",
+        path: "../graphs"
+    }
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct K3sRegistry {
