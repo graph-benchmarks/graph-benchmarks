@@ -89,7 +89,8 @@
         state: restarted
         name: docker
 
-    - name: Copy k3s_registry.yaml 
+    - name: Copy k3s_registry.yaml
+      become: true
       ansible.builtin.copy:
         src: data/k3s_registry.yaml
         dest: /etc/rancher/k3s/registries.yaml

@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{bail, Result};
 use common::{
-    command::{command, finish_progress, progress},
+    command::{command_print, finish_progress, progress},
     config::parse_config,
     exit,
     provider::PlatformInfo,
@@ -61,17 +61,26 @@ struct PlatformConfig {
     port: u16,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 struct DatasetConfig {
     vertex: String,
     edges: String,
+    name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RunConfig {
+    id: i32,
+    algo: String,
+    log_file: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct DriverConfig {
+    config: RunConfig,
     postgres: PostgresConfig,
     platform: PlatformConfig,
-    dataset: HashMap<String, DatasetConfig>,
+    dataset: DatasetConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,25 +142,23 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     host: service_ip.0,
                     port: service_ip.1,
                 },
-                dataset: HashMap::new(),
+                dataset: DatasetConfig::default(),
+                config: RunConfig {
+                    id: 0,
+                    algo: "".into(),
+                    log_file: "/attached/log".into(),
+                },
             };
 
             for dataset in &config.benchmark.datasets {
+                copy_dataset(dataset, &connect_args.master_ip.to_string(), cli.verbose).await?;
+
                 for algorithm in config.benchmark.algorithms.as_ref().unwrap_or(
                     &ALGORITHMS
                         .iter()
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>(),
                 ) {
-                    cfg.dataset = HashMap::from([(
-                        dataset.clone(),
-                        DatasetConfig {
-                            vertex: format!("/attached/{dataset}.v"),
-                            edges: format!("/attached/{dataset}.e"),
-                        },
-                    )]);
-                    info!("{cfg:#?}");
-
                     let run_id = get_run_id(&mut connection, n_nodes).await?;
                     runs.push(Run {
                         run_id,
@@ -159,10 +166,16 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         algorithm: algorithm.clone(),
                     });
 
-                    copy_dataset(dataset, &format!("{driver}-bench"), cli.verbose).await?;
+                    cfg.dataset = DatasetConfig {
+                        name: dataset.clone(),
+                        vertex: format!("/attached/{dataset}.v"),
+                        edges: format!("/attached/{dataset}.e"),
+                    };
+                    cfg.config.algo = algorithm.clone();
+                    cfg.config.id = run_id;
+                    info!("{cfg:#?}");
 
-                    let bench_pod =
-                        start_bench(&driver, &connect_args.master_ip, &cfg, run_id).await?;
+                    let bench_pod = start_bench(&driver, &connect_args.master_ip, &cfg).await?;
                     let metrics_ip = format!("{}:30001", connect_args.master_ip);
                     start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
 
@@ -227,7 +240,7 @@ async fn remove_driver(driver: &str, connect_args: &PlatformInfo, verbose: bool)
         env.insert("DEBUG_ANSIBLE", "1");
     }
 
-    command(
+    command_print(
         "ansible-playbook",
         &[
             "remove.yaml",
@@ -258,7 +271,7 @@ async fn setup_graph_platform(
         env.insert("DEBUG_ANSIBLE", "1");
     }
 
-    command(
+    command_print(
         "ansible-playbook",
         &[
             "setup.yaml",
@@ -331,7 +344,7 @@ async fn setup_graph_platform(
     Ok(())
 }
 
-async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig, run_id: i32) -> Result<Pod> {
+async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result<Pod> {
     let client = Client::try_default().await?;
 
     let default_pp = PostParams {
@@ -362,8 +375,8 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig, run_id: i
     pod_spec.metadata.name = Some(pod_name.clone());
     pod_spec.spec = Some(PodSpec {
         containers: vec![Container {
-            args: Some(vec!["/cfg/config.yaml".into(), run_id.to_string()]),
-            image: Some(format!("{}:30000/benches/{}:latest", host_ip, name)),
+            args: Some(vec!["/cfg/config.yaml".into()]),
+            image: Some(format!("{host_ip}:30000/benches/{name}:latest")),
             name: format!("{}-bench", name).into(),
             volume_mounts: Some(vec![
                 VolumeMount {
@@ -497,24 +510,56 @@ async fn get_run_id(conn: &mut AsyncPgConnection, n_nodes: usize) -> Result<i32>
     Ok(b.id)
 }
 
-async fn copy_dataset(dataset: &str, pod_name: &str, verbose: bool) -> Result<()> {
-    command(
-        "krsync.sh",
+async fn copy_dataset(dataset: &str, host_ip: &str, verbose: bool) -> Result<()> {
+    let client = Client::try_default().await?;
+    let pods: Api<Pod> = Api::default_namespaced(client);
+    let mut pod_spec = Pod::default();
+    pod_spec.metadata.name = Some("dataset-copy".into());
+    pod_spec.spec = Some(PodSpec {
+        containers: vec![Container {
+            name: "dataset-copy".into(),
+            image: Some(format!("{host_ip}:30000/system/rsync:latest")),
+            volume_mounts: Some(vec![VolumeMount {
+                mount_path: "/attached".into(),
+                name: "benchmark-pvc".into(),
+                ..VolumeMount::default()
+            }]),
+            ..Container::default()
+        }],
+        volumes: Some(vec![Volume {
+            name: "benchmark-pvc".into(),
+            persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
+                claim_name: "benchmark-pvc".into(),
+                read_only: Some(false),
+            }),
+            ..Volume::default()
+        }]),
+        ..PodSpec::default()
+    });
+    pods.create(&PostParams::default(), &pod_spec).await?;
+
+    await_condition(pods.clone(), "dataset-copy", is_pod_running()).await?;
+    command_print(
+        "./krsync.sh",
         &[
             "-av",
             "--progress",
             "--stats",
             &format!("../datasets/{dataset}/"),
-            &format!("{pod_name}:/attached"),
+            "dataset-copy:/attached",
         ],
         verbose,
         [
             "Copying dataset",
             "Could not copy dataset",
-            "Done copying dataset",
+            "Copied dataset",
         ],
         "k3s",
-        HashMap::<&str, &str>::new(),
+        HashMap::<&str, &str>::from([("KUBECONFIG", "kube-config")]),
     )
-    .await
+    .await?;
+
+    pods.delete("dataset-copy", &DeleteParams::default())
+        .await?;
+    Ok(())
 }

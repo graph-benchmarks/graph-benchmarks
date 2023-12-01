@@ -5,7 +5,7 @@ use std::{
 
 use anyhow::{bail, Result};
 use common::{
-    command::command,
+    command::{command_no_print, command_print},
     config::{parse_config, KubeSetup, PlatformConnectInfo, SetupArgs},
     exit,
 };
@@ -14,6 +14,16 @@ use tokio::fs::{self, remove_file};
 use tracing::info;
 
 use crate::args::{self, Cli};
+
+struct ImageConfig<'a> {
+    name: &'a str,
+    path: &'a str,
+}
+
+const STANDARD_IMAGES: &[ImageConfig] = &[ImageConfig {
+    name: "rsync",
+    path: "rsync",
+}];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct K3sRegistry {
@@ -122,7 +132,7 @@ async fn setup_master_node(
     if verbose {
         env.insert("DEBUG_ANSIBLE", "1");
     }
-    command(
+    command_print(
         "ansible-playbook",
         &[
             "main-master.yaml",
@@ -149,9 +159,9 @@ async fn setup_master_node(
     );
     fs::write("k3s/kube-config", kube_config).await?;
 
-    // TODO: load metrics & visualization containers
-    for driver in drivers {
-        command(
+    for image in STANDARD_IMAGES {
+        // TODO: add progress
+        command_no_print(
             "ansible-playbook",
             &[
                 "load-image.yaml",
@@ -160,7 +170,28 @@ async fn setup_master_node(
                 "-i",
                 "inventory/master-hosts.yaml",
                 "--extra-vars",
-                &format!("driver={driver}"),
+                &format!(
+                    "image_path={} image_name={} repo=system",
+                    image.path, image.name
+                ),
+            ],
+            "k3s",
+            env.clone(),
+        )
+        .await?;
+    }
+
+    for driver in drivers {
+        command_print(
+            "ansible-playbook",
+            &[
+                "load-image.yaml",
+                "--private-key",
+                &connect_args.private_key_file,
+                "-i",
+                "inventory/master-hosts.yaml",
+                "--extra-vars",
+                &format!("image_path=../drivers/{driver} image_name={driver} repo=benches"),
             ],
             verbose,
             [
@@ -216,7 +247,7 @@ async fn setup_worker_node(connect_args: &PlatformConnectInfo, verbose: bool) ->
         env.insert("DEBUG_ANSIBLE", "1");
     }
 
-    command(
+    command_print(
         "ansible-playbook",
         &[
             "worker.yaml",
