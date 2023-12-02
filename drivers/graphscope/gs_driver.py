@@ -46,7 +46,7 @@ def load_data(g: Graph | GraphDAGNode, vertex_file:str, edge_file:str):
     #e = loader.Loader(f"file://{edge_file}", header_row=False)
 
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    df_v = pd.read_csv(vertex_file, header=None, names="vertex")
+    df_v = pd.read_csv(vertex_file, header=None, names=["vertex"])
     df_e = pd.read_csv(edge_file, header=None, names=["src","dst"])
     g = g.add_vertices(df_v).add_edges(df_e)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
