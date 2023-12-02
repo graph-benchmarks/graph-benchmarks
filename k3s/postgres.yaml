@@ -1,0 +1,14 @@
+- name: Postgres helm setup
+  hosts: master
+  tasks:
+    - name: Copy kube config
+      ansible.builtin.copy:
+        src: data/postgres.yaml
+        dest: $HOME/postgres.yaml
+        mode: 'g+w'
+
+    - name: Create postgres setup
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        src: postgres.yaml

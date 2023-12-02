@@ -2,6 +2,7 @@
   hosts: workers
   tasks:
     - name: Check if k3s agent is running
+      become: true
       ansible.builtin.systemd:
         name: k3s-agent
       register: k3s_agent_status
@@ -9,10 +10,31 @@
     - name: Debug
       when: (lookup('env', "DEBUG_ANSIBLE") | length) > 0
       ansible.builtin.debug:
-        msg: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6444 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
+        msg: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
 
     - name: Once setup
       when: k3s_agent_status.status.ActiveState != 'active'
+      become: true
       block:
-        - name: Install k3s
-          ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6444 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
+        - name: Install k3s agent
+          ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
+
+    - name: Create a directory if it does not exist
+      become: true
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: '0755'
+
+    - name: Copy k3s_registry.yaml
+      become: true
+      ansible.builtin.copy:
+        src: data/k3s_registry.yaml
+        dest: /etc/rancher/k3s/registries.yaml
+        mode: 'g+w'
+
+    - name: Restart k3s-agent
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: k3s-agent

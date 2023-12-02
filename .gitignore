@@ -19,3 +19,7 @@ graphs/results
 graphs/venv
 .env
 __pycache__/
+bin
+.idea
+previous.build.config.toml
+.build-drivers

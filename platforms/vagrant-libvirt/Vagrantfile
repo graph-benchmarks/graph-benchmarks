@@ -1,0 +1,51 @@
+require "yaml"
+settings = YAML.load_file "settings.yaml"
+
+NUM_WORKER_NODES = settings["nodes"]["workers"]["count"]
+
+Vagrant.configure("2") do |config|
+  if `uname -m`.strip == "aarch64"
+    config.vm.box = settings["software"]["box"] + "-arm64"
+  else
+    config.vm.box = settings["software"]["box"]
+  end
+
+  config.vm.provider :libvirt do |libvirt|
+    libvirt.storage_pool_name = settings["nodes"]["storage_pool_name"]
+  end
+
+  config.vm.box_check_update = true
+  config.vm.provision "file", source: "~/.ssh/id_rsa.pub", destination: "~/.ssh/me.pub"
+  config.vm.synced_folder '.', '/vagrant', disabled: true
+  config.vm.define "graph_master" do |master|
+    master.vm.hostname = "graph-master-node"
+    master.vm.provider "libvirt" do |vm|
+        vm.cpus = settings["nodes"]["control"]["cpu"]
+        vm.memory = settings["nodes"]["control"]["memory"]
+        vm.machine_virtual_size = settings["nodes"]["disk_size"]
+    end
+    master.vm.provision "shell",
+      env: {
+        "DNS_SERVERS" => settings["network"]["dns_servers"].join(" ")
+      },
+      path: "setup.sh"
+  end
+
+  (1..NUM_WORKER_NODES).each do |i|
+
+    config.vm.define "graph_node0#{i}" do |node|
+      node.vm.hostname = "graph-worker-node0#{i}"
+      node.vm.provider "libvirt" do |vm|
+          vm.cpus = settings["nodes"]["workers"]["cpu"]
+          vm.memory = settings["nodes"]["workers"]["memory"]
+          vm.machine_virtual_size = settings["nodes"]["disk_size"]
+      end
+      node.vm.provision "shell",
+        env: {
+          "DNS_SERVERS" => settings["network"]["dns_servers"].join(" ")
+        },
+        path: "setup.sh"
+    end
+
+  end
+end

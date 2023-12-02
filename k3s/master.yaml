@@ -2,6 +2,7 @@
   hosts: master
   tasks:
     - name: Check if k3s is installed
+      become: true
       ansible.builtin.systemd:
         name: k3s
       register: k3s_status
@@ -10,10 +11,30 @@
       when: k3s_status.status.ActiveState != 'active'
       block:
         - name: Install k3s
+          become: true
           ansible.builtin.shell: curl -sfL https://get.k3s.io | sh -s - --disable traefik --write-kubeconfig-mode 644 --node-name master --node-external-ip {{ ansible_ssh_host }}
 
         - name: Install helm
           ansible.builtin.shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+        - name: Wait for apt to unlock
+          become: true
+          shell: while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 5; done;
+
+        - name: Install python3-pip
+          become: true
+          ansible.builtin.apt:
+            name: python3-pip
+            update_cache: true
+            state: latest
+
+        - name: Install pre-requisites
+          ansible.builtin.pip:
+            name:
+              - kubernetes
+
+        - name: Wait for all k3s nodes to be ready
+          ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s
 
     - name: Create kube config dir
       ansible.builtin.file:
@@ -28,12 +49,58 @@
         mode: 'g+r'
         remote_src: true
 
-    - name: Wait for all k3s nodes to be ready
-      ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s
-
     - name: Get kube token
       become: true
       ansible.builtin.fetch:
         src: /var/lib/rancher/k3s/server/node-token
         dest: node-token
         flat: true
+
+    - name: Download kube config
+      ansible.builtin.fetch:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: kube-config
+        flat: true
+
+    - name: Copy internal registry yaml
+      ansible.builtin.copy:
+        src: data/internal-registry.yaml
+        dest: internal-registry.yaml
+        mode: 'g+w'
+
+    - name: Create internal registry
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        namespace: default
+        src: internal-registry.yaml
+
+    - name: Install docker
+      become: true
+      ansible.builtin.shell: curl -fsSL https://get.docker.com/ | sh
+
+    - name: Append insecure registry
+      become: true
+      ansible.builtin.shell: rm -f /etc/docker/daemon.json && echo "{ \"insecure-registries\":[\"http://{{ ansible_ssh_host }}:30000\"] }" >> /etc/docker/daemon.json
+
+    - name: Restart docker
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: docker
+
+    - name: Copy k3s_registry.yaml
+      become: true
+      ansible.builtin.copy:
+        src: data/k3s_registry.yaml
+        dest: /etc/rancher/k3s/registries.yaml
+        mode: 'g+w'
+
+    - name: Restart k3s
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: k3s
+
+    - name: Wait for all k3s nodes to be ready
+      ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s

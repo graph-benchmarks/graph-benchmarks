@@ -1,0 +1,4 @@
+CREATE TABLE IF NOT EXISTS benchmarks(
+    id SERIAL PRIMARY KEY,
+    nodes INT NOT NULL
+);
