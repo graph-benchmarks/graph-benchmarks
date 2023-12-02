@@ -67,8 +67,6 @@ def generate_line_graph(data_rows, output_directory, select_log_id, use_dataset)
     ax.set_title("Execution Time per Algorithm for Various Worker Counts")
     ax.legend()
     
-    print("unique workers: " + str(unique_workers))
-    
     # Set x-ticks on the horizontal axis to show only the actual worker counts with equal spacing.
     ax.set_xticks(range(len(unique_workers)))
     ax.set_xticklabels(unique_workers)

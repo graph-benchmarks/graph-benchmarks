@@ -8,6 +8,7 @@ services:
       - benchmarks_db
     environment:
       - SELECT_LOG_ID=${SELECT_LOG_ID}
+      - GENERATE_GRAPHS=${GENERATE_GRAPHS} # values: "bars" | "histograms" | "all"
       - GENERATE_LINES_DATASET=${GENERATE_LINES_DATASET}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
