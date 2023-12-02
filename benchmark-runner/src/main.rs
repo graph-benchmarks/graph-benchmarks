@@ -29,7 +29,8 @@ async fn main() -> Result<()> {
         Commands::Benchmark(_) => commands::benchmark::run_benchmark(&args).await,
         Commands::Destroy => commands::destroy::destroy(&args).await,
         Commands::Ls => commands::ls::list(&args).await,
-        Commands::Dashboard => commands::dashboard::access(&args).await,
+        Commands::Dashboard => commands::port_forwards::dashboard(&args).await,
+        Commands::Postgres => commands::port_forwards::postgres(&args).await,
     }?;
 
     Ok(())

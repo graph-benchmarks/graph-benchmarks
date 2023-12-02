@@ -20,17 +20,21 @@ use diesel_async::{
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use futures_util::{StreamExt, TryStreamExt};
 use k8s_openapi::{
-    api::core::v1::{
-        ConfigMap, ConfigMapVolumeSource, Container, HostPathVolumeSource, Node, PersistentVolume,
-        PersistentVolumeClaim, PersistentVolumeClaimSpec, PersistentVolumeClaimVolumeSource,
-        PersistentVolumeSpec, Pod, PodSpec, ResourceRequirements, Volume, VolumeMount,
+    api::{
+        batch::v1::{Job, JobSpec},
+        core::v1::{
+            ConfigMap, ConfigMapVolumeSource, Container, HostPathVolumeSource, Node,
+            PersistentVolume, PersistentVolumeClaim, PersistentVolumeClaimSpec,
+            PersistentVolumeClaimVolumeSource, PersistentVolumeSpec, Pod, PodSpec, PodTemplateSpec,
+            ResourceRequirements, Volume, VolumeMount,
+        },
     },
     apimachinery::pkg::api::resource::Quantity,
 };
 use kube::{
     api::{DeleteParams, ListParams, PostParams},
     runtime::{
-        conditions::is_pod_running,
+        conditions::{is_job_completed, is_pod_running},
         wait::{await_condition, Condition},
         watcher, WatchStreamExt,
     },
@@ -135,7 +139,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     host: "postgres".into(),
                     db: "postgres".into(),
                     user: "postgres".into(),
-                    port: 30002,
+                    port: 5432,
                     ps: "graph_benchmarks".into(),
                 },
                 platform: PlatformConfig {
@@ -177,21 +181,26 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     info!("{cfg:#?}");
 
                     let start = Instant::now();
-                    let bench_pod = start_bench(&driver, &connect_args.master_ip, &cfg).await?;
+                    let bench_job = start_bench(&driver, &connect_args.master_ip, &cfg).await?;
                     let metrics_ip = format!("{}:30001", connect_args.master_ip);
                     start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
 
                     let client = Client::try_default().await?;
-                    let api: Api<Pod> = Api::default_namespaced(client);
+                    let api: Api<Job> = Api::default_namespaced(client);
                     await_condition(
-                        api,
-                        &bench_pod.metadata.name.unwrap(),
-                        is_pod_running().not(),
+                        api.clone(),
+                        bench_job.metadata.name.as_ref().unwrap(),
+                        is_job_completed(),
                     )
                     .await?;
 
                     stop_recording(metrics_ip, pod_ids.clone(), run_id).await?;
-                    finish_progress("Done benchmarking", &format!("({algorithm} on {dataset})"), start.elapsed(), Some(pb));
+                    finish_progress(
+                        "Done benchmarking",
+                        &format!("{algorithm} on {dataset}"),
+                        start.elapsed(),
+                        Some(pb),
+                    );
                 }
             }
 
@@ -346,7 +355,7 @@ async fn setup_graph_platform(
     Ok(())
 }
 
-async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result<Pod> {
+async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result<Job> {
     let client = Client::try_default().await?;
 
     let default_pp = PostParams {
@@ -354,13 +363,15 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result
         field_manager: None,
     };
 
-    let pod_name = format!("{}-bench", name);
+    let job_name = format!("{}-bench", name);
 
     let config_map: Api<ConfigMap> = Api::default_namespaced(client.clone());
-    _ = config_map.delete(&pod_name, &DeleteParams::default()).await;
+    _ = config_map
+        .delete(&job_name, &DeleteParams::default().grace_period(0))
+        .await;
 
     let mut config_map_spec = ConfigMap::default();
-    config_map_spec.metadata.name = Some(pod_name.clone());
+    config_map_spec.metadata.name = Some(job_name.clone());
     config_map_spec.data = Some(BTreeMap::from([(
         "config.yaml".into(),
         serde_yaml::to_string(&cfg)?,
@@ -368,55 +379,65 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result
     config_map_spec.immutable = Some(true);
     config_map.create(&default_pp, &config_map_spec).await?;
 
-    let pods: Api<Pod> = Api::default_namespaced(client);
-    let mut dp = DeleteParams::default();
-    dp.grace_period_seconds = Some(0);
-    _ = pods.delete(&pod_name, &dp).await;
+    let jobs: Api<Job> = Api::default_namespaced(client);
+    _ = jobs
+        .delete(&job_name, &DeleteParams::default().grace_period(0))
+        .await;
 
-    let mut pod_spec = Pod::default();
-    pod_spec.metadata.name = Some(pod_name.clone());
-    pod_spec.spec = Some(PodSpec {
-        containers: vec![Container {
-            args: Some(vec!["/cfg/config.yaml".into()]),
-            image: Some(format!("{host_ip}:30000/benches/{name}:latest")),
-            name: format!("{}-bench", name).into(),
-            volume_mounts: Some(vec![
-                VolumeMount {
-                    mount_path: "/attached".into(),
-                    name: "benchmark-pvc".into(),
-                    ..VolumeMount::default()
-                },
-                VolumeMount {
-                    name: pod_name.clone(),
-                    mount_path: "/cfg".into(),
-                    read_only: Some(true),
-                    ..VolumeMount::default()
-                },
-            ]),
-            ..Container::default()
-        }],
-        volumes: Some(vec![
-            Volume {
-                name: "benchmark-pvc".into(),
-                persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
-                    claim_name: "benchmark-pvc".into(),
-                    read_only: Some(false),
-                }),
-                ..Volume::default()
-            },
-            Volume {
-                name: pod_name.clone(),
-                config_map: Some(ConfigMapVolumeSource {
-                    name: Some(pod_name.clone()),
-                    ..ConfigMapVolumeSource::default()
-                }),
-                ..Volume::default()
-            },
-        ]),
-        ..PodSpec::default()
+    let mut job_spec = Job::default();
+    job_spec.metadata.name = Some(job_name.clone());
+    job_spec.spec = Some(JobSpec {
+        backoff_limit: Some(0),
+        ttl_seconds_after_finished: Some(0),
+        template: PodTemplateSpec {
+            spec: Some(PodSpec {
+                restart_policy: Some("Never".into()),
+                containers: vec![Container {
+                    args: Some(vec!["/cfg/config.yaml".into()]),
+                    image: Some(format!("{host_ip}:30000/benches/{name}:latest")),
+                    image_pull_policy: Some("Always".into()),
+                    name: format!("{}-bench", name).into(),
+                    volume_mounts: Some(vec![
+                        VolumeMount {
+                            mount_path: "/attached".into(),
+                            name: "benchmark-pvc".into(),
+                            ..VolumeMount::default()
+                        },
+                        VolumeMount {
+                            name: job_name.clone(),
+                            mount_path: "/cfg".into(),
+                            read_only: Some(true),
+                            ..VolumeMount::default()
+                        },
+                    ]),
+                    ..Container::default()
+                }],
+                volumes: Some(vec![
+                    Volume {
+                        name: "benchmark-pvc".into(),
+                        persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
+                            claim_name: "benchmark-pvc".into(),
+                            read_only: Some(false),
+                        }),
+                        ..Volume::default()
+                    },
+                    Volume {
+                        name: job_name.clone(),
+                        config_map: Some(ConfigMapVolumeSource {
+                            name: Some(job_name.clone()),
+                            ..ConfigMapVolumeSource::default()
+                        }),
+                        ..Volume::default()
+                    },
+                ]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
     });
 
-    Ok(pods.create(&default_pp, &pod_spec).await?)
+    Ok(jobs.create(&default_pp, &job_spec).await?)
 }
 
 async fn setup_pv_and_pvc() -> Result<()> {
@@ -436,6 +457,7 @@ async fn setup_pv_and_pvc() -> Result<()> {
             "storage".into(),
             Quantity("10Gi".into()),
         )])),
+        persistent_volume_reclaim_policy: Some("Retain".into()),
         host_path: Some(HostPathVolumeSource {
             path: "/benchmark-pv".into(),
             type_: None,
@@ -538,6 +560,13 @@ async fn copy_dataset(dataset: &str, host_ip: &str, verbose: bool) -> Result<()>
         }]),
         ..PodSpec::default()
     });
+
+    _ = pods
+        .delete("dataset-copy", &DeleteParams::default().grace_period(0))
+        .await;
+
+    await_condition(pods.clone(), "dataset-copy", is_pod_running().not()).await?;
+
     pods.create(&PostParams::default(), &pod_spec).await?;
 
     await_condition(pods.clone(), "dataset-copy", is_pod_running()).await?;
@@ -561,7 +590,11 @@ async fn copy_dataset(dataset: &str, host_ip: &str, verbose: bool) -> Result<()>
     )
     .await?;
 
-    pods.delete("dataset-copy", &DeleteParams::default())
-        .await?;
+    _ = pods
+        .delete("dataset-copy", &DeleteParams::default().grace_period(0))
+        .await;
+
+    await_condition(pods.clone(), "dataset-copy", is_pod_running().not()).await?;
+
     Ok(())
 }
