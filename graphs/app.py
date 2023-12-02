@@ -22,6 +22,7 @@ select_log_id = os.environ.get("SELECT_LOG_ID")
 print(f"Selecting data of log id: {select_log_id}")
 
 lines_dataset = os.environ.get("GENERATE_LINES_DATASET")
+graphs_to_generate = os.environ.get("GENERATE_GRAPHS")
 
 def main():
     try:
@@ -46,8 +47,16 @@ def main():
         # and then per dataset for the specific algorithm.
         rows = cursor.fetchall() 
         
-        generate_histograms(rows, output_directory, select_log_id)
-        generate_line_graph(rows, output_directory, select_log_id, lines_dataset)
+        # Only generate the declared graphs.
+        if (graphs_to_generate == "bars"):
+            generate_histograms(rows, output_directory, select_log_id)
+        elif (graphs_to_generate == "lines"):
+            generate_line_graph(rows, output_directory, select_log_id, lines_dataset)
+        elif (graphs_to_generate == "all"):
+            generate_histograms(rows, output_directory, select_log_id)
+            generate_line_graph(rows, output_directory, select_log_id, lines_dataset)
+        else:
+            print("No graphs declared to generate.")
         
 
     except psycopg2.Error as error:
