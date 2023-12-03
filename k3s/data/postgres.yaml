@@ -16,20 +16,6 @@ spec:
     path: /postgres-pv
 ---
 apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: postgres-pvc
-  namespace: default
-spec:
-  accessModes:
-    - ReadWriteOnce 
-  resources:
-    requests:
-      storage: 1Gi 
-  storageClassName: "" 
-  volumeName: postgres-pv
----
-apiVersion: v1
 kind: Service
 metadata:
   name: postgres 

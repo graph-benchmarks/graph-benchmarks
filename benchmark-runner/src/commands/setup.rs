@@ -1,11 +1,12 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 use anyhow::{bail, Result};
 use common::{
-    command::{command_no_print, command_print},
+    command::{command_no_print, command_print, finish_progress, progress},
     config::{parse_config, KubeSetup, PlatformConnectInfo, SetupArgs},
     exit,
 };
@@ -25,14 +26,14 @@ const STANDARD_IMAGES: &[ImageConfig] = &[
         name: "rsync",
         path: "rsync",
     },
-    ImageConfig {
-        name: "metrics",
-        path: "../metrics"
-    },
+    // ImageConfig {
+    //     name: "metrics",
+    //     path: "../metrics"
+    // },
     ImageConfig {
         name: "graphs",
-        path: "../graphs"
-    }
+        path: "../graphs",
+    },
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -169,6 +170,8 @@ async fn setup_master_node(
     );
     fs::write("k3s/kube-config", kube_config).await?;
 
+    let pb = progress("Building & loading internal benchmark resources");
+    let start = Instant::now();
     for image in STANDARD_IMAGES {
         // TODO: add progress
         command_no_print(
@@ -190,6 +193,12 @@ async fn setup_master_node(
         )
         .await?;
     }
+    finish_progress(
+        "Internal benchmark resources ready",
+        "containers",
+        start.elapsed(),
+        Some(pb),
+    );
 
     for driver in drivers {
         command_print(
@@ -285,7 +294,7 @@ async fn setup_platform(
 ) -> Result<PlatformConnectInfo> {
     for p in base_provider::PROVIDERS {
         if p.name() == setup_args.provider {
-            if !cli.only_platform_outputs {
+            if !cli.only_software_setup {
                 p.pre_setup(setup_args, verbose).await?;
                 p.setup(setup_args, verbose).await?;
             }

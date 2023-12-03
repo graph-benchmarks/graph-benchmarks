@@ -6,10 +6,11 @@ A tool to simplify benchmarking graph analytics platforms & graph databases
 * rust
 * python
 * ansible
+
+## Install necessary providers:
 * terraform
-* vagrant (optional, if using vagrant as a platform), also requires plugins: 
+* vagrant also requires plugins: 
     * [libvirt](https://github.com/vagrant-libvirt/vagrant-libvirt)
-    * [disksize](https://github.com/sprotheroe/vagrant-disksize)
 
 ## Getting started
 
@@ -88,7 +89,7 @@ eg:
 
 ### Vagrant
 Specify cpu and memory for nodes using vagrant
-```
+```toml
 [setup.master_platform_env]
 cpu = "8"
 memory = "8192"
@@ -103,7 +104,7 @@ Arguments to `[setup.worker_platform_env]` prefixed with `worker-{n}`, eg. `work
 
 ## Provider platform arguments
 Arguments can be passed to platforms on a provider like shown below, for `vagrant-libvirt`
-```
+```toml
 [setup.platform_args]
 storage_pool_path = "/path/to/storage_pool"
 ```
@@ -127,7 +128,7 @@ Follow one of the reference implementations for a more detailed guide.
 
 ### Driver config file
 The driver should take a single argument, to a yaml config file with the following format:
-```
+```yaml
 config:
   id: 32 # integer database ID given for each run, provided by the runner
   algo: sssp # the algorithm to run

@@ -28,13 +28,15 @@ pub enum Commands {
     Ls,
     /// Port forward dashboard
     Dashboard,
+    /// Port forward postgres
+    Postgres,
 }
 
 #[derive(Debug, Args)]
 pub struct SetupArgs {
-    /// Do not run terraform apply, just get outputs
+    /// Do not run create the platform resources, just set up their software
     #[arg(long, short, action = ArgAction::SetTrue)]
-    pub only_platform_outputs: bool,
+    pub only_software_setup: bool,
 }
 
 #[derive(Debug, Args)]

@@ -14,7 +14,7 @@ db_name = os.environ.get("POSTGRES_DB")
 
 # The output path of the generated grap. The eventual file name depends on the
 # provided log id.
-output_directory = "/app/results/"
+output_directory = os.environ.get("OUTPUT_DIR")
 
 # For now this id is not used, since the associated table and schema isn't
 # defined yet.

@@ -1,0 +1,6 @@
+- name: Download generated graphs
+  tasks:
+    - name: Download generated graphs
+      ansible.builtin.fetch:
+        src: /visualize-pv
+        dest: generated-graphs
