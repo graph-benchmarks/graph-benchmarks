@@ -16,7 +16,8 @@ message Stop {
 }
 
 message Ack {
-
+  bool status = 1;
+  string message = 2;
 }
 
 message MetricsQuery {
