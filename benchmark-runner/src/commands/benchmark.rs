@@ -127,6 +127,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     env::set_var("KUBECONFIG", "k3s/kube-config");
     setup_pv_and_pvc("benchmark", "/benchmark-pv", "10Gi", "10Gi").await?;
     setup_pv_and_pvc("visualize", "/visualize-pv", "10Gi", "50Mi").await?;
+    start_metrics_container(&connect_args.master_ip.to_string()).await?;
 
     let mut runs: Vec<Run> = Vec::new();
 
@@ -227,6 +228,8 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     )
     .await?;
     copy_generated_graphs(cli.verbose, &connect_args).await?;
+
+    stop_metrics_container().await?;
 
     Ok(())
 }
@@ -744,3 +747,45 @@ async fn visualize(job_name: String, host_ip: String, run_ids: Vec<i32>) -> Resu
 
     Ok(())
 }
+
+async fn start_metrics_container(host_ip: &str) -> Result<()> {
+    let client = Client::try_default().await?;
+    let pods: Api<Pod> = Api::default_namespaced(client);
+    let mut pod_spec = Pod::default();
+    pod_spec.metadata.name = Some("metrics".into());
+    pod_spec.spec = Some(PodSpec {
+        containers: vec![Container {
+            name: "metrics".into(),
+            args: Some(
+                vec![
+                    "-psql-host",
+                    POSTGRES_CONFIG.host,
+                    "-psql-port",
+                    &POSTGRES_CONFIG.port.to_string(),
+                    "-psql-username",
+                    POSTGRES_CONFIG.user,
+                    "-psql-password",
+                    POSTGRES_CONFIG.ps,
+                    "-psql-db",
+                    POSTGRES_CONFIG.db,
+                ]
+                .into_iter()
+                .map(|x| x.to_owned())
+                .collect(),
+            ),
+            image: Some(format!("{host_ip}:30000/system/metrics:latest")),
+            ..Container::default()
+        }],
+        ..PodSpec::default()
+    });
+
+    pods.create(&PostParams::default(), &pod_spec).await?;
+    Ok(())
+}
+
+async fn stop_metrics_container() -> Result<()> {
+    let client = Client::try_default().await?;
+    let pods: Api<Pod> = Api::default_namespaced(client);
+    pods.delete("metrics", &DeleteParams::default().grace_period(1)).await?;
+    Ok(())
+} 

@@ -25,9 +25,15 @@ pub struct PlatformInfo {
 
 #[async_trait::async_trait]
 pub trait Platform {
+    /// Perform any activities before creating the resources, such as generating configurations
+    /// getting dependencies ready, etc.
     async fn pre_setup(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()>;
+    /// Create the platform resources
     async fn setup(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()>;
+    /// Get the information necessary to connect to the resources, such as IPs and the ssh key
     async fn platform_info(&self, setup_args: &SetupArgs, verbose: bool) -> Result<PlatformInfo>;
+    /// Destroy the created resources
     async fn destroy(&self, setup_args: &SetupArgs, verbose: bool) -> Result<()>;
+    /// Name of the platform provider
     fn name(&self) -> String;
 }

@@ -123,7 +123,7 @@ Follow one of the reference implementations for a more detailed guide.
 2. Write your driver code
 3. Write a dockerfile to containerize your driver
 4. Add a `setup.yaml`, and a `remove.yaml` for creating and destroying the graph platforms
-5. The `driver-config` rust crate must implement the `DriverConfig` trait present in `common/driver_config.rs`
+5. The `driver-config` rust crate must implement the `DriverConfig` trait present in `common/src/driver_config.rs`
 6. Add it to `build.config.toml`
 
 ### Driver config file
@@ -152,4 +152,4 @@ dataset:
 ```
 
 ## Writing custom providers
-1. Implement the `Platform` trait as a rust crate present in `common/platform.rs`
+1. Implement the `Platform` trait as a rust crate present in `common/src/provider.rs`
