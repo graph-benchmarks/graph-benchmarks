@@ -1,0 +1,13 @@
+postgresql:
+  host: 127.0.0.1
+  port: 5432
+  username: postgres
+  password: password
+  database: postgres
+
+grpc:
+  host: 0.0.0.0
+  port: 9090
+
+k8s:
+  in_cluster_config: true
