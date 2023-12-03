@@ -14,4 +14,4 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /metrics-server
 
 EXPOSE 9090
 
-CMD ["/metrics-server"]
+ENTRYPOINT ["/metrics-server"]

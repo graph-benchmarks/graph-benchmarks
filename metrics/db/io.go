@@ -18,7 +18,7 @@ type PerformanceMetric struct {
 }
 
 func (pm PerformanceMetric) String() string {
-	return fmt.Sprintf("PerformanceMetric<%d, %d, %s, %d, %d>", pm.Id, pm.TimeDelta, pm.PodName, pm.CpuUsage, pm.RamUsage)
+	return fmt.Sprintf("PerformanceMetric<%d, %d, %s, %f, %f>", pm.Id, pm.TimeDelta, pm.PodName, pm.CpuUsage, pm.RamUsage)
 }
 
 func (handler *Handler) NewRecord(pm *PerformanceMetric) error {
