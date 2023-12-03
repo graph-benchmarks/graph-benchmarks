@@ -1,4 +1,4 @@
-# Graph benchmarks
+# Graph benchmarks ![Visits](https://nkvnu62257.execute-api.ap-south-1.amazonaws.com/production?repo=graph-benchmarks)
 A tool to simplify benchmarking graph analytics platforms & graph databases
 
 ## Dependencies
