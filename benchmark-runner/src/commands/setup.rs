@@ -26,10 +26,10 @@ const STANDARD_IMAGES: &[ImageConfig] = &[
         name: "rsync",
         path: "rsync",
     },
-    // ImageConfig {
-    //     name: "metrics",
-    //     path: "../metrics"
-    // },
+    ImageConfig {
+        name: "metrics",
+        path: "../metrics",
+    },
     ImageConfig {
         name: "graphs",
         path: "../graphs",
@@ -173,7 +173,6 @@ async fn setup_master_node(
     let pb = progress("Building & loading internal benchmark resources");
     let start = Instant::now();
     for image in STANDARD_IMAGES {
-        // TODO: add progress
         command_no_print(
             "ansible-playbook",
             &[
