@@ -18,12 +18,12 @@ use diesel_async::{
     RunQueryDsl,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::{future::join_all, StreamExt, TryStreamExt};
 use k8s_openapi::{
     api::{
         batch::v1::{Job, JobSpec},
         core::v1::{
-            ConfigMap, ConfigMapVolumeSource, Container, HostPathVolumeSource, Node,
+            ConfigMap, ConfigMapVolumeSource, Container, EnvVar, HostPathVolumeSource, Node,
             PersistentVolume, PersistentVolumeClaim, PersistentVolumeClaimSpec,
             PersistentVolumeClaimVolumeSource, PersistentVolumeSpec, Pod, PodSpec, PodTemplateSpec,
             ResourceRequirements, Volume, VolumeMount,
@@ -51,11 +51,19 @@ use crate::{
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 const ALGORITHMS: &[&str] = &["bfs", "pr", "wcc", "cdlp", "lcc", "sssp"];
+const POSTGRES_CONFIG: PostgresConfig = PostgresConfig {
+    host: "postgres",
+    db: "postgres",
+    user: "postgres",
+    port: 5432,
+    ps: "graph_benchmarks",
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct Run {
     dataset: String,
     algorithm: String,
+    nodes: usize,
     run_id: i32,
 }
 
@@ -80,20 +88,21 @@ struct RunConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct DriverConfig {
+struct DriverConfig<'a> {
     config: RunConfig,
-    postgres: PostgresConfig,
+    #[serde(borrow)]
+    postgres: PostgresConfig<'a>,
     platform: PlatformConfig,
     dataset: DatasetConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct PostgresConfig {
-    host: String,
+struct PostgresConfig<'a> {
+    host: &'a str,
     port: u32,
-    db: String,
-    user: String,
-    ps: String,
+    db: &'a str,
+    user: &'a str,
+    ps: &'a str,
 }
 
 pub async fn run_benchmark(cli: &Cli) -> Result<()> {
@@ -110,13 +119,14 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
 
     setup_db(connect_args.master_ip.clone())?;
     let mut connection = AsyncPgConnection::establish(&format!(
-        "postgres://postgres:graph_benchmarks@{}:30002/postgres",
-        connect_args.master_ip
+        "postgres://{}:{}@{}:30002/{}",
+        POSTGRES_CONFIG.user, POSTGRES_CONFIG.ps, connect_args.master_ip, POSTGRES_CONFIG.db
     ))
     .await?;
 
     env::set_var("KUBECONFIG", "k3s/kube-config");
-    setup_pv_and_pvc().await?;
+    setup_pv_and_pvc("benchmark", "/benchmark-pv", "10Gi", "10Gi").await?;
+    setup_pv_and_pvc("visualize", "/visualize-pv", "10Gi", "50Mi").await?;
 
     let mut runs: Vec<Run> = Vec::new();
 
@@ -128,6 +138,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 Some(d) => d,
                 None => exit!("", "Could not find driver {}", driver),
             };
+            let runs_start_point = runs.len();
 
             driver_config.set_node_config(n_nodes, 2, 1024).await?;
             setup_graph_platform(&driver, &connect_args, cli.verbose).await?;
@@ -135,13 +146,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
             let pod_ids = driver_config.metrics_pod_ids().await?;
 
             let mut cfg = DriverConfig {
-                postgres: PostgresConfig {
-                    host: "postgres".into(),
-                    db: "postgres".into(),
-                    user: "postgres".into(),
-                    port: 5432,
-                    ps: "graph_benchmarks".into(),
-                },
+                postgres: POSTGRES_CONFIG,
                 platform: PlatformConfig {
                     host: service_ip.0,
                     port: service_ip.1,
@@ -169,6 +174,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         run_id,
                         dataset: dataset.clone(),
                         algorithm: algorithm.clone(),
+                        nodes: n_nodes,
                     });
 
                     cfg.dataset = DatasetConfig {
@@ -203,12 +209,55 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     );
                 }
             }
-
+            visualize_dataset_algos(
+                &runs[runs_start_point..],
+                &driver,
+                n_nodes,
+                connect_args.master_ip.to_string(),
+            )
+            .await?;
             remove_driver(&driver, &connect_args, cli.verbose).await?;
         }
     }
 
+    visualize_algos_workers(
+        &runs,
+        &config.benchmark.datasets,
+        connect_args.master_ip.to_string(),
+    )
+    .await?;
+    copy_generated_graphs(cli.verbose, &connect_args).await?;
+
     Ok(())
+}
+
+async fn copy_generated_graphs(verbose: bool, connect_args: &PlatformInfo) -> Result<()> {
+    let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
+    if verbose {
+        env.insert("DEBUG_ANSIBLE", "1");
+    }
+
+    command_print(
+        "ansible-playbook",
+        &[
+            "copy-graphs.yaml",
+            "--private-key",
+            &connect_args.ssh_key,
+            "-i",
+            "inventory/master-hosts.yaml",
+            "-i",
+            "inventory/worker-hosts.yaml",
+        ],
+        verbose,
+        [
+            &format!("Copying generated graphs"),
+            &format!("Could not copy generated graphs"),
+            &format!("Copied generated graphs"),
+        ],
+        "k3s",
+        env,
+    )
+    .await
 }
 
 async fn new_cluster_node_count(n_nodes: usize) -> Result<()> {
@@ -355,7 +404,7 @@ async fn setup_graph_platform(
     Ok(())
 }
 
-async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result<Job> {
+async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig<'_>) -> Result<Job> {
     let client = Client::try_default().await?;
 
     let default_pp = PostParams {
@@ -440,7 +489,12 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig) -> Result
     Ok(jobs.create(&default_pp, &job_spec).await?)
 }
 
-async fn setup_pv_and_pvc() -> Result<()> {
+async fn setup_pv_and_pvc(
+    name: &str,
+    mount_path: &str,
+    size: &str,
+    request_size: &str,
+) -> Result<()> {
     let default_pp = PostParams {
         dry_run: false,
         field_manager: None,
@@ -449,17 +503,14 @@ async fn setup_pv_and_pvc() -> Result<()> {
     let client = Client::try_default().await?;
     let pv: Api<PersistentVolume> = Api::all(client.clone());
     let mut pv_spec = PersistentVolume::default();
-    pv_spec.metadata.name = Some("benchmark-pv".into());
+    pv_spec.metadata.name = Some(format!("{name}-pv"));
     pv_spec.metadata.labels = Some(BTreeMap::from([("type".into(), "local".into())]));
     pv_spec.spec = Some(PersistentVolumeSpec {
         access_modes: Some(vec!["ReadWriteOnce".into()]),
-        capacity: Some(BTreeMap::from([(
-            "storage".into(),
-            Quantity("10Gi".into()),
-        )])),
+        capacity: Some(BTreeMap::from([("storage".into(), Quantity(size.into()))])),
         persistent_volume_reclaim_policy: Some("Retain".into()),
         host_path: Some(HostPathVolumeSource {
-            path: "/benchmark-pv".into(),
+            path: mount_path.into(),
             type_: None,
         }),
         storage_class_name: Some("manual".into()),
@@ -481,13 +532,13 @@ async fn setup_pv_and_pvc() -> Result<()> {
 
     let pvc: Api<PersistentVolumeClaim> = Api::default_namespaced(client);
     let mut pvc_spec = PersistentVolumeClaim::default();
-    pvc_spec.metadata.name = Some("benchmark-pvc".into());
+    pvc_spec.metadata.name = Some(format!("{name}-pvc"));
     pvc_spec.spec = Some(PersistentVolumeClaimSpec {
         access_modes: Some(vec!["ReadWriteOnce".into()]),
         resources: Some(ResourceRequirements {
             requests: Some(BTreeMap::from([(
                 "storage".into(),
-                Quantity("10Gi".into()),
+                Quantity(request_size.into()),
             )])),
             ..Default::default()
         }),
@@ -513,8 +564,8 @@ async fn setup_pv_and_pvc() -> Result<()> {
 fn setup_db(master_ip: IpAddr) -> Result<()> {
     std::thread::spawn(move || {
         let mut connection = AsyncConnectionWrapper::<AsyncPgConnection>::establish(&format!(
-            "postgres://postgres:graph_benchmarks@{}:30002/postgres",
-            master_ip
+            "postgres://{}:{}@{}:30002/{}",
+            POSTGRES_CONFIG.user, POSTGRES_CONFIG.ps, master_ip, POSTGRES_CONFIG.db
         ))
         .unwrap();
         connection.run_pending_migrations(MIGRATIONS).unwrap();
@@ -595,6 +646,101 @@ async fn copy_dataset(dataset: &str, host_ip: &str, verbose: bool) -> Result<()>
         .await;
 
     await_condition(pods.clone(), "dataset-copy", is_pod_running().not()).await?;
+
+    Ok(())
+}
+
+async fn visualize_dataset_algos(
+    runs: &[Run],
+    driver: &str,
+    n_nodes: usize,
+    host_ip: String,
+) -> Result<()> {
+    visualize(
+        format!("{driver}_{n_nodes}"),
+        host_ip,
+        runs.iter().map(|x| x.run_id).collect::<Vec<i32>>(),
+    )
+    .await
+}
+
+async fn visualize_algos_workers(runs: &[Run], datasets: &[String], host_ip: String) -> Result<()> {
+    let mut jobs = Vec::new();
+    for dataset in datasets {
+        jobs.push(visualize(
+            format!("{dataset}"),
+            host_ip.clone(),
+            runs.iter().map(|x| x.run_id).collect::<Vec<i32>>(),
+        ));
+    }
+    let j: Result<Vec<()>, _> = join_all(jobs).await.into_iter().collect();
+    j?;
+    Ok(())
+}
+
+fn env_var(name: &str, value: &str) -> EnvVar {
+    EnvVar {
+        name: name.into(),
+        value: Some(value.into()),
+        value_from: None,
+    }
+}
+
+async fn visualize(job_name: String, host_ip: String, run_ids: Vec<i32>) -> Result<()> {
+    let mut job_spec = Job::default();
+    job_spec.metadata.name = Some(job_name.clone());
+    job_spec.spec = Some(JobSpec {
+        backoff_limit: Some(0),
+        ttl_seconds_after_finished: Some(0),
+        template: PodTemplateSpec {
+            spec: Some(PodSpec {
+                restart_policy: Some("Never".into()),
+                containers: vec![Container {
+                    args: Some(vec!["/cfg/config.yaml".into()]),
+                    image: Some(format!("{host_ip}:30000/benches/graphs:latest")),
+                    image_pull_policy: Some("Always".into()),
+                    name: "graphs-vis".into(),
+                    volume_mounts: Some(vec![VolumeMount {
+                        mount_path: "/attached".into(),
+                        name: "visualize-pvc".into(),
+                        ..VolumeMount::default()
+                    }]),
+                    env: Some(vec![
+                        env_var("POSTGRES_HOST", POSTGRES_CONFIG.host),
+                        env_var("POSTGRES_PORT", &POSTGRES_CONFIG.port.to_string()),
+                        env_var("POSTGRES_USER", POSTGRES_CONFIG.user),
+                        env_var("POSTGRES_PASSWORD", POSTGRES_CONFIG.ps),
+                        env_var("POSTGRES_DB", POSTGRES_CONFIG.db),
+                        env_var("OUTPUT_DIR", &format!("/attached/{job_name}")),
+                        env_var(
+                            "SELECT_LOG_ID",
+                            &run_ids
+                                .iter()
+                                .map(|x| x.to_string())
+                                .collect::<Vec<String>>()
+                                .join(","),
+                        ),
+                        env_var("GENERATE_GRAPHS", "bars"),
+                    ]),
+                    ..Container::default()
+                }],
+                volumes: Some(vec![Volume {
+                    name: "visualize-pvc".into(),
+                    persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
+                        claim_name: "visualize-pvc".into(),
+                        read_only: Some(false),
+                    }),
+                    ..Volume::default()
+                }]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+
+    let jobs: Api<Job> = Api::default_namespaced(Client::try_default().await?);
+    jobs.create(&PostParams::default(), &job_spec).await?;
 
     Ok(())
 }
