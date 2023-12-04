@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 
 def generate_line_graph(
-    data_rows, output_directory, select_log_id, use_dataset
+    data_rows, output_directory, use_dataset
 ):
     """Generate the graph and save it in a png file. The graph has multiple
     algorithm lines with on the horizontal axis the number of workers and on the
@@ -98,7 +98,7 @@ def generate_line_graph(
     timestamp_str = datetime.now().strftime("%Y%m%d%H%M")
     output_filename = os.path.join(
         output_directory,
-        f"result-lines-{select_log_id}-{timestamp_str}.png"
+        f"result-lines-{timestamp_str}.png"
         )
     plt.savefig(output_filename)
     print(f"Graph saved to {output_filename}")

@@ -51,10 +51,10 @@ def main():
         if (graphs_to_generate == "bars"):
             generate_histograms(rows, output_directory, select_log_ids)
         elif (graphs_to_generate == "lines"):
-            generate_line_graph(rows, output_directory, select_log_ids, lines_dataset)
+            generate_line_graph(rows, output_directory, lines_dataset)
         elif (graphs_to_generate == "all"):
             generate_histograms(rows, output_directory, select_log_ids)
-            generate_line_graph(rows, output_directory, select_log_ids, lines_dataset)
+            generate_line_graph(rows, output_directory, lines_dataset)
         else:
             print("No graphs declared to generate.")
         

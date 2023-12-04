@@ -7,8 +7,9 @@ services:
     depends_on:
       - benchmarks_db
     environment:
-      - SELECT_LOG_IDS=${SELECT_LOG_IDS}
-      - GENERATE_GRAPHS=${GENERATE_GRAPHS} # values: "bars" | "histograms" | "all"
+      - SELECT_LOG_IDS=${SELECT_LOG_IDS} # example: 1,2,3,15
+      - OUTPUT_DIR=${OUTPUT_DIR}
+      - GENERATE_GRAPHS=${GENERATE_GRAPHS} # possible values: "bars" | "histograms" | "all"
       - GENERATE_LINES_DATASET=${GENERATE_LINES_DATASET}
       - POSTGRES_HOST=${POSTGRES_HOST}
       - POSTGRES_PORT=${POSTGRES_PORT}
