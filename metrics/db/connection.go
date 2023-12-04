@@ -3,10 +3,11 @@ package db
 import (
 	"context"
 	"fmt"
-	"github.com/go-pg/pg/v10"
-	"github.com/go-pg/pg/v10/orm"
 	"graph-benchmarks/metrics-server/config"
 	"log"
+
+	"github.com/go-pg/pg/v10"
+	"github.com/go-pg/pg/v10/orm"
 )
 
 type Handler struct {
@@ -21,6 +22,8 @@ func New(cfg config.SqlConfig) (Handler, error) {
 		Password: cfg.Password,
 		Database: cfg.Database,
 	}
+
+	log.Println(cfg)
 
 	db := pg.Connect(&opts)
 

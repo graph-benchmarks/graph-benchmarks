@@ -2,9 +2,9 @@ package rpc
 
 import (
 	"context"
-	"fmt"
 	"graph-benchmarks/metrics-server/config"
 	"graph-benchmarks/metrics-server/k8s"
+	"log"
 )
 
 type MetricsServer struct {
@@ -23,11 +23,10 @@ func New(k8sCfg config.K8sConfig, sqlConfig config.SqlConfig) MetricsServer {
 }
 
 func (s *MetricsServer) StartRecording(ctx context.Context, req *Start) (*Ack, error) {
-	fmt.Printf("Received start recording request: %s", req)
+	log.Printf("Received start recording request: %s", req)
 	var err error
 	s.Worker, err = k8s.New(s.SqlConfig, s.K8sConfig, req.RunId, int64(req.Interval), req.PodIds)
 	if err != nil {
-		panic(err)
 		return nil, err
 	}
 	s.Worker.Start()
@@ -39,7 +38,7 @@ func (s *MetricsServer) StartRecording(ctx context.Context, req *Start) (*Ack, e
 }
 
 func (s *MetricsServer) StopRecording(ctx context.Context, req *Stop) (*Ack, error) {
-	fmt.Printf("Received stop recording request: %s", req)
+	log.Printf("Received stop recording request: %s", req)
 	s.Worker.Stop()
 
 	return &Ack{

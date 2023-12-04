@@ -2,11 +2,11 @@ package rpc
 
 import (
 	"fmt"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/reflection"
 	"graph-benchmarks/metrics-server/config"
 	"log"
 	"net"
+
+	"google.golang.org/grpc"
 )
 
 type Rpc struct {
@@ -14,7 +14,7 @@ type Rpc struct {
 }
 
 func (s *Rpc) StartServer(host string, port int64, k8sCfg config.K8sConfig, sqlCfg config.SqlConfig) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", host, port))
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
@@ -23,17 +23,15 @@ func (s *Rpc) StartServer(host string, port int64, k8sCfg config.K8sConfig, sqlC
 	var opts []grpc.ServerOption
 	s.handler = grpc.NewServer(opts...)
 	metricsServer := MetricsServer{}
+	metricsServer.SqlConfig = sqlCfg
 	RegisterMetricsCollectorServer(s.handler, &metricsServer)
-	reflection.Register(s.handler)
 
 	// Start grpc server
-	go s.handler.Serve(lis)
-
-	if err != nil {
+	log.Println("listening!")
+	if err := s.handler.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
 		return err
 	}
-
-	log.Printf("RPC server started on: %s:%d\n", host, port)
 	return nil
 }
 

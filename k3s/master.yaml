@@ -75,6 +75,18 @@
         namespace: default
         src: internal-registry.yaml
 
+    - name: Copy admin user service account setup
+      ansible.builtin.copy:
+        src: data/admin-user.yaml
+        dest: $HOME/admin-user.yaml
+        mode: 'g+w'
+
+    - name: Create admin user 
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        src: admin-user.yaml
+
     - name: Install docker
       become: true
       ansible.builtin.shell: curl -fsSL https://get.docker.com/ | sh
