@@ -34,7 +34,8 @@ def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str,
             sql.SQL(', ').join(map(sql.Identifier, columns)),
             sql.SQL(', ').join(sql.Placeholder() * len(columns)))
 
-    cur.execute(query, (log_id, algo, dataset, type_, time, vertex, edge))
+    time_ms = time // 1000000
+    cur.execute(query, (log_id, algo, dataset, type_, time_ms, vertex, edge))
     conn.commit()
     cur.close()
 
