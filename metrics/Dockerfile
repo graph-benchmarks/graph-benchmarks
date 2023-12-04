@@ -1,17 +1,11 @@
-# syntax=docker/dockerfile:1
-
-FROM golang:1.21-alpine
-
+FROM golang:1.21-alpine AS builder
 WORKDIR /app
-
-# Copy and Download Go modules
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
+COPY . /app
+RUN CGO_ENABLED=0 GOOS=linux go build -o metrics-server
 
-# Build
-RUN CGO_ENABLED=0 GOOS=linux go build -o /metrics-server
-
+FROM alpine:latest AS production
+COPY --from=builder /app .
 EXPOSE 9090
-
-ENTRYPOINT ["/metrics-server"]
+ENTRYPOINT ["./metrics-server"]

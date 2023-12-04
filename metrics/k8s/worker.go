@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"graph-benchmarks/metrics-server/config"
 	"graph-benchmarks/metrics-server/db"
+	"log"
 	"time"
 )
 
@@ -28,6 +29,7 @@ func New(sqlCfg config.SqlConfig, k8sCfg config.K8sConfig, runId int64, interval
 
 	return MetricsPollingWorker{
 		db:        db,
+		runId:     runId,
 		k8sClient: k8sClient,
 		interval:  interval,
 		podNames:  podNames,
@@ -46,10 +48,12 @@ func (w *MetricsPollingWorker) Start() {
 					metrics, err := w.k8sClient.GetMetrics(name)
 					if err != nil {
 						fmt.Printf("Failed to get metrics from pod: %s\n", name)
+						log.Println(err)
+						return
 					}
 					cpuUsage := metrics.Containers[0].Usage.Cpu().AsApproximateFloat64()
 					ramUsage, _ := metrics.Containers[0].Usage.Memory().AsInt64()
-					fmt.Printf("cpu: %f, mem: %d\n", cpuUsage, ramUsage)
+					// fmt.Printf("cpu: %f, mem: %d\n", cpuUsage, ramUsage)
 
 					pm := db.PerformanceMetric{
 						Id:         0,

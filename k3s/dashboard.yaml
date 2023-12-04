@@ -6,12 +6,6 @@
         name: kubernetes-dashboard
         repo_url: https://kubernetes.github.io/dashboard/
 
-    - name: Copy admin user service account setup
-      ansible.builtin.copy:
-        src: data/admin-user.yaml
-        dest: $HOME/admin-user.yaml
-        mode: 'g+w'
-
     - name: Copy cluster role binding
       ansible.builtin.copy:
         src: data/cluster-role-binding.yaml
@@ -23,12 +17,6 @@
         name: kubernetes-dashboard
         release_namespace: default
         chart_ref: kubernetes-dashboard/kubernetes-dashboard
-
-    - name: Create admin user 
-      kubernetes.core.k8s:
-        state: present
-        apply: true
-        src: admin-user.yaml
 
     - name: Create cluster role binding
       kubernetes.core.k8s:
