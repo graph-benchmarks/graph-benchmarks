@@ -23,10 +23,11 @@ use k8s_openapi::{
     api::{
         batch::v1::{Job, JobSpec},
         core::v1::{
-            ConfigMap, ConfigMapVolumeSource, Container, EnvVar, HostPathVolumeSource, Node,
-            PersistentVolume, PersistentVolumeClaim, PersistentVolumeClaimSpec,
-            PersistentVolumeClaimVolumeSource, PersistentVolumeSpec, Pod, PodSpec, PodTemplateSpec,
-            ResourceRequirements, Volume, VolumeMount,
+            ConfigMap, ConfigMapVolumeSource, Container, ContainerPort, EnvVar,
+            HostPathVolumeSource, Node, PersistentVolume, PersistentVolumeClaim,
+            PersistentVolumeClaimSpec, PersistentVolumeClaimVolumeSource, PersistentVolumeSpec,
+            Pod, PodSpec, PodTemplateSpec, ResourceRequirements, Service, ServicePort, ServiceSpec,
+            Volume, VolumeMount,
         },
     },
     apimachinery::pkg::api::resource::Quantity,
@@ -127,7 +128,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     env::set_var("KUBECONFIG", "k3s/kube-config");
     setup_pv_and_pvc("benchmark", "/benchmark-pv", "10Gi", "10Gi").await?;
     setup_pv_and_pvc("visualize", "/visualize-pv", "10Gi", "50Mi").await?;
-    start_metrics_container(&connect_args.master_ip.to_string()).await?;
+    start_metrics(&connect_args.master_ip.to_string()).await?;
 
     let mut runs: Vec<Run> = Vec::new();
 
@@ -145,6 +146,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
             setup_graph_platform(&driver, &connect_args, cli.verbose).await?;
             let service_ip = driver_config.get_service_ip().await?;
             let pod_ids = driver_config.metrics_pod_ids().await?;
+            info!("pod ids: {pod_ids:?}");
 
             let mut cfg = DriverConfig {
                 postgres: POSTGRES_CONFIG,
@@ -189,8 +191,9 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
 
                     let start = Instant::now();
                     let bench_job = start_bench(&driver, &connect_args.master_ip, &cfg).await?;
-                    let metrics_ip = format!("{}:30001", connect_args.master_ip);
+                    let metrics_ip = format!("http://{}:30001", connect_args.master_ip);
                     start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
+                    info!("started recording metrics on {metrics_ip}");
 
                     let client = Client::try_default().await?;
                     let api: Api<Job> = Api::default_namespaced(client);
@@ -202,6 +205,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     .await?;
 
                     stop_recording(metrics_ip, pod_ids.clone(), run_id).await?;
+                    info!("stopped recording metrics");
                     finish_progress(
                         "Done benchmarking",
                         &format!("{algorithm} on {dataset}"),
@@ -229,7 +233,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     .await?;
     copy_generated_graphs(cli.verbose, &connect_args).await?;
 
-    stop_metrics_container().await?;
+    stop_metrics().await?;
 
     Ok(())
 }
@@ -440,7 +444,7 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig<'_>) -> Re
     job_spec.metadata.name = Some(job_name.clone());
     job_spec.spec = Some(JobSpec {
         backoff_limit: Some(0),
-        ttl_seconds_after_finished: Some(0),
+        ttl_seconds_after_finished: Some(60),
         template: PodTemplateSpec {
             spec: Some(PodSpec {
                 restart_policy: Some("Never".into()),
@@ -748,11 +752,14 @@ async fn visualize(job_name: String, host_ip: String, run_ids: Vec<i32>) -> Resu
     Ok(())
 }
 
-async fn start_metrics_container(host_ip: &str) -> Result<()> {
+async fn start_metrics(host_ip: &str) -> Result<()> {
+    _ = stop_metrics().await;
+
     let client = Client::try_default().await?;
-    let pods: Api<Pod> = Api::default_namespaced(client);
+    let pods: Api<Pod> = Api::default_namespaced(client.clone());
     let mut pod_spec = Pod::default();
     pod_spec.metadata.name = Some("metrics".into());
+    pod_spec.metadata.labels = Some(BTreeMap::from([("app".into(), "metrics".into())]));
     pod_spec.spec = Some(PodSpec {
         containers: vec![Container {
             name: "metrics".into(),
@@ -773,19 +780,47 @@ async fn start_metrics_container(host_ip: &str) -> Result<()> {
                 .map(|x| x.to_owned())
                 .collect(),
             ),
+            ports: Some(vec![ContainerPort {
+                container_port: 9090,
+                ..Default::default()
+            }]),
             image: Some(format!("{host_ip}:30000/system/metrics:latest")),
             ..Container::default()
         }],
+        service_account: Some("admin-user".into()),
         ..PodSpec::default()
     });
-
     pods.create(&PostParams::default(), &pod_spec).await?;
+
+    let service: Api<Service> = Api::default_namespaced(client);
+    let mut service_spec = Service::default();
+    service_spec.metadata.name = Some("metrics".into());
+    service_spec.metadata.namespace = Some("default".into());
+    service_spec.spec = Some(ServiceSpec {
+        selector: Some(BTreeMap::from([("app".into(), "metrics".into())])),
+        type_: Some("NodePort".into()),
+        ports: Some(vec![ServicePort {
+            port: 9090,
+            node_port: Some(30001),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    });
+    service
+        .create(&PostParams::default(), &service_spec)
+        .await?;
     Ok(())
 }
 
-async fn stop_metrics_container() -> Result<()> {
+async fn stop_metrics() -> Result<()> {
     let client = Client::try_default().await?;
-    let pods: Api<Pod> = Api::default_namespaced(client);
-    pods.delete("metrics", &DeleteParams::default().grace_period(1)).await?;
+    let pods: Api<Pod> = Api::default_namespaced(client.clone());
+    let service: Api<Service> = Api::default_namespaced(client);
+    _ = pods
+        .delete("metrics", &DeleteParams::default().grace_period(0))
+        .await;
+    _ = service
+        .delete("metrics", &DeleteParams::default().grace_period(0))
+        .await;
     Ok(())
-} 
+}

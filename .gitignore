@@ -24,3 +24,4 @@ bin
 previous.build.config.toml
 .build-drivers
 generated-graphs
+datasets

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"graph-benchmarks/metrics-server/config"
 	"graph-benchmarks/metrics-server/rpc"
+	"log"
 )
 
 func main() {
@@ -16,7 +17,7 @@ func main() {
 	psqlPassword := flag.String("psql-password", "password", "the password of PostgreSQL")
 	psqlDatabase := flag.String("psql-db", "postgres", "the database name of PostgreSQL")
 
-	grpcHost := flag.String("grpc-host", "[::]", "the host of grpc server")
+	grpcHost := flag.String("grpc-host", "0.0.0.0", "the host of grpc server")
 	grpcPort := flag.Int64("grpc-port", 9090, "the port of grpc server")
 
 	k8sAuthMethod := flag.Bool("k8s-auth", true, "the auth method of k8s API (only in-cluster implemented)")
@@ -33,10 +34,8 @@ func main() {
 			panic(err)
 		}
 	}
+	log.Println(cfg)
 
 	rpc := rpc.Rpc{}
 	rpc.StartServer(cfg.Grpc.Host, cfg.Grpc.Port, cfg.K8s, cfg.Sql)
-
-	for {
-	}
 }

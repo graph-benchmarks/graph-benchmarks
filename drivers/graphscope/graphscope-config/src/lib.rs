@@ -56,7 +56,7 @@ impl DriverConfig for Graphscope {
         Ok(pods
             .items
             .into_iter()
-            .map(|x| x.metadata.uid.unwrap())
+            .map(|x| x.metadata.name.unwrap())
             .collect())
     }
 

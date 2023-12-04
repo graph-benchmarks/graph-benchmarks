@@ -7,10 +7,10 @@ pub async fn start_recording(ip: String, pod_ids: Vec<String>, run_id: i32) -> R
     let mut client = MetricsCollectorClient::connect(ip).await?;
     let req = Request::new(Start {
         pod_ids,
-        interval: 100.0,
+        interval: 1000.0,
         run_id: run_id.into(),
     });
-    client.start_recording(req).await?;
+    tracing::info!("{:#?}", client.start_recording(req).await?);
     Ok(())
 }
 
