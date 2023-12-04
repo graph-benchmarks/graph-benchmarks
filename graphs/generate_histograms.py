@@ -20,7 +20,7 @@ def generate_histograms(data_rows, output_directory, select_log_id):
     datasets = set()
 
     for row in data_rows:
-        log_id, algo, dataset, cpu, workers, mem_size, log_type, time = row
+        log_id, algo, dataset, log_type, time, vertex, edge, workers = row
 
         algorithms.add(algo)
         datasets.add(dataset)

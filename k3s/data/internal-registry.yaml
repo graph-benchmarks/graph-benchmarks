@@ -6,6 +6,8 @@ metadata:
   labels:
     type: local
 spec:
+  nodeSelector:
+    node-role.kubernetes.io/master: "true"
   storageClassName: manual
   capacity:
     storage: 10Gi
@@ -33,6 +35,8 @@ metadata:
   labels:
     registry: internal-registry
 spec:
+  nodeSelector:
+    node-role.kubernetes.io/master: "true"
   containers:
     - name: internal-registry
       image: registry:2

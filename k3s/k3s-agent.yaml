@@ -1,0 +1,15 @@
+- name: k3s-agent setup
+  hosts: workers
+  tasks:
+    - name: Check if k3s agent is running
+      become: true
+      ansible.builtin.systemd:
+        name: k3s-agent
+      register: k3s_agent_status
+
+    - name: Once setup
+      when: k3s_agent_status.status.ActiveState != 'active'
+      become: true
+      block:
+        - name: Install k3s agent
+          ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}

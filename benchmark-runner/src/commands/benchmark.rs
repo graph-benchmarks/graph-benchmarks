@@ -5,7 +5,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{bail, Result};
+use anyhow::Result;
 use common::{
     command::{command_print, finish_progress, progress},
     config::parse_config,
@@ -19,29 +19,21 @@ use diesel_async::{
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use futures_util::{future::join_all, StreamExt, TryStreamExt};
-use k8s_openapi::{
-    api::{
-        batch::v1::{Job, JobSpec},
-        core::v1::{
-            ConfigMap, ConfigMapVolumeSource, Container, ContainerPort, EnvVar,
-            HostPathVolumeSource, Node, PersistentVolume, PersistentVolumeClaim,
-            PersistentVolumeClaimSpec, PersistentVolumeClaimVolumeSource, PersistentVolumeSpec,
-            Pod, PodSpec, PodTemplateSpec, ResourceRequirements, Service, ServicePort, ServiceSpec,
-            Volume, VolumeMount,
-        },
+use k8s_openapi::api::{
+    batch::v1::{Job, JobSpec},
+    core::v1::{
+        ConfigMap, ConfigMapVolumeSource, Container, ContainerPort, EnvVar, NFSVolumeSource, Node,
+        Pod, PodSpec, PodTemplateSpec, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
     },
-    apimachinery::pkg::api::resource::Quantity,
 };
 use kube::{
-    api::{DeleteParams, ListParams, PostParams},
-    runtime::{
-        conditions::{is_job_completed, is_pod_running},
-        wait::{await_condition, Condition},
-        watcher, WatchStreamExt,
-    },
+    api::{DeleteParams, ListParams, PostParams, WatchParams},
+    core::{ObjectMeta, WatchEvent},
+    runtime::{watcher, WatchStreamExt},
     Api, Client, ResourceExt,
 };
 use serde::{Deserialize, Serialize};
+use tokio::spawn;
 use tracing::info;
 
 use crate::{
@@ -86,6 +78,7 @@ struct RunConfig {
     id: i32,
     algo: String,
     log_file: String,
+    nodes: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,9 +119,29 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     .await?;
 
     env::set_var("KUBECONFIG", "k3s/kube-config");
-    setup_pv_and_pvc("benchmark", "/benchmark-pv", "10Gi", "10Gi").await?;
-    setup_pv_and_pvc("visualize", "/visualize-pv", "10Gi", "50Mi").await?;
+    copy_datasets(
+        &config.benchmark.datasets,
+        &connect_args,
+        config
+            .setup
+            .host_username
+            .as_ref()
+            .unwrap_or(&"root".to_owned()),
+        cli.verbose,
+    )
+    .await?;
+    clear_dirs(&connect_args, cli.verbose).await?;
+    join_all_nodes(&connect_args, cli.verbose).await?;
     start_metrics(&connect_args.master_ip.to_string()).await?;
+
+    let svc: Api<Service> = Api::default_namespaced(Client::try_default().await?);
+    let nfs_ip = svc
+        .get("nfs-service")
+        .await?
+        .spec
+        .unwrap()
+        .cluster_ip
+        .unwrap();
 
     let mut runs: Vec<Run> = Vec::new();
 
@@ -159,12 +172,11 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     id: 0,
                     algo: "".into(),
                     log_file: "/attached/log".into(),
+                    nodes: n_nodes,
                 },
             };
 
             for dataset in &config.benchmark.datasets {
-                copy_dataset(dataset, &connect_args.master_ip.to_string(), cli.verbose).await?;
-
                 for algorithm in config.benchmark.algorithms.as_ref().unwrap_or(
                     &ALGORITHMS
                         .iter()
@@ -190,19 +202,25 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     info!("{cfg:#?}");
 
                     let start = Instant::now();
-                    let bench_job = start_bench(&driver, &connect_args.master_ip, &cfg).await?;
+                    start_bench(&driver, &connect_args.master_ip, &cfg, nfs_ip.clone()).await?;
                     let metrics_ip = format!("http://{}:30001", connect_args.master_ip);
                     start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
                     info!("started recording metrics on {metrics_ip}");
 
                     let client = Client::try_default().await?;
                     let api: Api<Job> = Api::default_namespaced(client);
-                    await_condition(
-                        api.clone(),
-                        bench_job.metadata.name.as_ref().unwrap(),
-                        is_job_completed(),
-                    )
-                    .await?;
+
+                    let mut job_stream = api
+                        .watch(&WatchParams::default().labels("app=graph-bench"), "0")
+                        .await
+                        .unwrap()
+                        .boxed();
+                    while let Ok(Some(status)) = job_stream.try_next().await {
+                        match status {
+                            WatchEvent::Deleted(_) => break,
+                            s => info!("got event: {s:?}"),
+                        }
+                    }
 
                     stop_recording(metrics_ip, pod_ids.clone(), run_id).await?;
                     info!("stopped recording metrics");
@@ -219,6 +237,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 &driver,
                 n_nodes,
                 connect_args.master_ip.to_string(),
+                nfs_ip.clone(),
             )
             .await?;
             remove_driver(&driver, &connect_args, cli.verbose).await?;
@@ -229,6 +248,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
         &runs,
         &config.benchmark.datasets,
         connect_args.master_ip.to_string(),
+        nfs_ip.clone(),
     )
     .await?;
     copy_generated_graphs(cli.verbose, &connect_args).await?;
@@ -239,11 +259,6 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
 }
 
 async fn copy_generated_graphs(verbose: bool, connect_args: &PlatformInfo) -> Result<()> {
-    let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
-    if verbose {
-        env.insert("DEBUG_ANSIBLE", "1");
-    }
-
     command_print(
         "ansible-playbook",
         &[
@@ -252,8 +267,6 @@ async fn copy_generated_graphs(verbose: bool, connect_args: &PlatformInfo) -> Re
             &connect_args.ssh_key,
             "-i",
             "inventory/master-hosts.yaml",
-            "-i",
-            "inventory/worker-hosts.yaml",
         ],
         verbose,
         [
@@ -262,7 +275,7 @@ async fn copy_generated_graphs(verbose: bool, connect_args: &PlatformInfo) -> Re
             &format!("Copied generated graphs"),
         ],
         "k3s",
-        env,
+        HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]),
     )
     .await
 }
@@ -302,11 +315,6 @@ async fn new_cluster_node_count(n_nodes: usize) -> Result<()> {
 }
 
 async fn remove_driver(driver: &str, connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
-    let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
-    if verbose {
-        env.insert("DEBUG_ANSIBLE", "1");
-    }
-
     command_print(
         "ansible-playbook",
         &[
@@ -323,7 +331,7 @@ async fn remove_driver(driver: &str, connect_args: &PlatformInfo, verbose: bool)
             &format!("Removed {driver}"),
         ],
         &format!("drivers/{}", driver),
-        env,
+        HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]),
     )
     .await
 }
@@ -333,11 +341,6 @@ async fn setup_graph_platform(
     connect_args: &PlatformInfo,
     verbose: bool,
 ) -> Result<()> {
-    let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
-    if verbose {
-        env.insert("DEBUG_ANSIBLE", "1");
-    }
-
     command_print(
         "ansible-playbook",
         &[
@@ -354,7 +357,7 @@ async fn setup_graph_platform(
             &format!("Installed {name}"),
         ],
         &format!("drivers/{}", name),
-        env,
+        HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]),
     )
     .await?;
 
@@ -411,7 +414,12 @@ async fn setup_graph_platform(
     Ok(())
 }
 
-async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig<'_>) -> Result<Job> {
+async fn start_bench(
+    name: &str,
+    host_ip: &IpAddr,
+    cfg: &DriverConfig<'_>,
+    nfs_ip: String,
+) -> Result<()> {
     let client = Client::try_default().await?;
 
     let default_pp = PostParams {
@@ -435,17 +443,62 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig<'_>) -> Re
     config_map_spec.immutable = Some(true);
     config_map.create(&default_pp, &config_map_spec).await?;
 
-    let jobs: Api<Job> = Api::default_namespaced(client);
+    let c = client.clone();
+    let wait_for_job_close = spawn(async {
+        let jobs: Api<Job> = Api::default_namespaced(c);
+
+        if let Ok(jobs) = jobs
+            .list(&ListParams::default().labels("app=graph-bench"))
+            .await
+        {
+            if jobs.items.len() == 0 {
+                return;
+            }
+        }
+
+        let mut job_stream = jobs
+            .watch(&WatchParams::default().labels("app=graph-bench"), "0")
+            .await
+            .unwrap()
+            .boxed();
+        while let Ok(Some(status)) = job_stream.try_next().await {
+            match status {
+                WatchEvent::Deleted(_) => break,
+                s => info!("got event: {s:?}"),
+            }
+        }
+        info!("old jobs deleted!");
+    });
+
+    let jobs: Api<Job> = Api::default_namespaced(client.clone());
     _ = jobs
         .delete(&job_name, &DeleteParams::default().grace_period(0))
         .await;
 
+    let pods: Api<Pod> = Api::default_namespaced(client);
+    _ = pods
+        .delete_collection(
+            &DeleteParams::default().grace_period(0),
+            &ListParams::default().labels("app=graph-bench"),
+        )
+        .await;
+
+    wait_for_job_close.await?;
+
     let mut job_spec = Job::default();
-    job_spec.metadata.name = Some(job_name.clone());
+    job_spec.metadata = ObjectMeta {
+        name: Some(job_name.clone()),
+        labels: Some(BTreeMap::from([("app".into(), "graph-bench".into())])),
+        ..Default::default()
+    };
     job_spec.spec = Some(JobSpec {
         backoff_limit: Some(0),
-        ttl_seconds_after_finished: Some(60),
+        ttl_seconds_after_finished: Some(0),
         template: PodTemplateSpec {
+            metadata: Some(ObjectMeta {
+                labels: Some(BTreeMap::from([("app".into(), "graph-bench".into())])),
+                ..Default::default()
+            }),
             spec: Some(PodSpec {
                 restart_policy: Some("Never".into()),
                 containers: vec![Container {
@@ -456,7 +509,7 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig<'_>) -> Re
                     volume_mounts: Some(vec![
                         VolumeMount {
                             mount_path: "/attached".into(),
-                            name: "benchmark-pvc".into(),
+                            name: "bench-storage".into(),
                             ..VolumeMount::default()
                         },
                         VolumeMount {
@@ -470,9 +523,10 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig<'_>) -> Re
                 }],
                 volumes: Some(vec![
                     Volume {
-                        name: "benchmark-pvc".into(),
-                        persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
-                            claim_name: "benchmark-pvc".into(),
+                        name: "bench-storage".into(),
+                        nfs: Some(NFSVolumeSource {
+                            path: "/bench-storage".to_owned(),
+                            server: nfs_ip,
                             read_only: Some(false),
                         }),
                         ..Volume::default()
@@ -493,78 +547,7 @@ async fn start_bench(name: &str, host_ip: &IpAddr, cfg: &DriverConfig<'_>) -> Re
         ..Default::default()
     });
 
-    Ok(jobs.create(&default_pp, &job_spec).await?)
-}
-
-async fn setup_pv_and_pvc(
-    name: &str,
-    mount_path: &str,
-    size: &str,
-    request_size: &str,
-) -> Result<()> {
-    let default_pp = PostParams {
-        dry_run: false,
-        field_manager: None,
-    };
-
-    let client = Client::try_default().await?;
-    let pv: Api<PersistentVolume> = Api::all(client.clone());
-    let mut pv_spec = PersistentVolume::default();
-    pv_spec.metadata.name = Some(format!("{name}-pv"));
-    pv_spec.metadata.labels = Some(BTreeMap::from([("type".into(), "local".into())]));
-    pv_spec.spec = Some(PersistentVolumeSpec {
-        access_modes: Some(vec!["ReadWriteOnce".into()]),
-        capacity: Some(BTreeMap::from([("storage".into(), Quantity(size.into()))])),
-        persistent_volume_reclaim_policy: Some("Retain".into()),
-        host_path: Some(HostPathVolumeSource {
-            path: mount_path.into(),
-            type_: None,
-        }),
-        storage_class_name: Some("manual".into()),
-        ..PersistentVolumeSpec::default()
-    });
-
-    if let Err(err) = pv.create(&default_pp, &pv_spec).await {
-        match err {
-            kube::Error::Api(ref api_error) => {
-                if api_error.code != 409 {
-                    bail!(err);
-                } else {
-                    info!("PV {name} already exists, not creating");
-                }
-            }
-            _ => bail!(err),
-        }
-    }
-
-    let pvc: Api<PersistentVolumeClaim> = Api::default_namespaced(client);
-    let mut pvc_spec = PersistentVolumeClaim::default();
-    pvc_spec.metadata.name = Some(format!("{name}-pvc"));
-    pvc_spec.spec = Some(PersistentVolumeClaimSpec {
-        access_modes: Some(vec!["ReadWriteOnce".into()]),
-        resources: Some(ResourceRequirements {
-            requests: Some(BTreeMap::from([(
-                "storage".into(),
-                Quantity(request_size.into()),
-            )])),
-            ..Default::default()
-        }),
-        storage_class_name: Some("manual".into()),
-        ..PersistentVolumeClaimSpec::default()
-    });
-
-    if let Err(err) = pvc.create(&default_pp, &pvc_spec).await {
-        match err {
-            kube::Error::Api(ref api_error) => {
-                if api_error.code != 409 {
-                    bail!(err);
-                } else {
-                    info!("PVC {name} already exists, not creating");
-                }
-            }
-            _ => bail!(err),
-        }
-    }
+    jobs.create(&default_pp, &job_spec).await?;
     Ok(())
 }
 
@@ -592,67 +575,87 @@ async fn get_run_id(conn: &mut AsyncPgConnection, n_nodes: usize) -> Result<i32>
     Ok(b.id)
 }
 
-async fn copy_dataset(dataset: &str, host_ip: &str, verbose: bool) -> Result<()> {
-    let client = Client::try_default().await?;
-    let pods: Api<Pod> = Api::default_namespaced(client);
-    let mut pod_spec = Pod::default();
-    pod_spec.metadata.name = Some("dataset-copy".into());
-    pod_spec.spec = Some(PodSpec {
-        containers: vec![Container {
-            name: "dataset-copy".into(),
-            image: Some(format!("{host_ip}:30000/system/rsync:latest")),
-            volume_mounts: Some(vec![VolumeMount {
-                mount_path: "/attached".into(),
-                name: "benchmark-pvc".into(),
-                ..VolumeMount::default()
-            }]),
-            ..Container::default()
-        }],
-        volumes: Some(vec![Volume {
-            name: "benchmark-pvc".into(),
-            persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
-                claim_name: "benchmark-pvc".into(),
-                read_only: Some(false),
-            }),
-            ..Volume::default()
-        }]),
-        ..PodSpec::default()
-    });
-
-    _ = pods
-        .delete("dataset-copy", &DeleteParams::default().grace_period(0))
-        .await;
-
-    await_condition(pods.clone(), "dataset-copy", is_pod_running().not()).await?;
-
-    pods.create(&PostParams::default(), &pod_spec).await?;
-
-    await_condition(pods.clone(), "dataset-copy", is_pod_running()).await?;
+async fn join_all_nodes(connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
     command_print(
-        "./krsync.sh",
+        "ansible-playbook",
         &[
-            "-av",
-            "--progress",
-            "--stats",
-            &format!("../datasets/{dataset}/"),
-            "dataset-copy:/attached",
+            "k3s-agent.yaml",
+            "--private-key",
+            &connect_args.ssh_key,
+            "-i",
+            "inventory/worker-hosts.yaml",
         ],
         verbose,
         [
-            "Copying dataset",
-            "Could not copy dataset",
-            "Copied dataset",
+            &format!("Rejoining all nodes to cluster"),
+            &format!("Could not join all nodes to cluster"),
+            &format!("All nodes have joined the cluster"),
         ],
         "k3s",
-        HashMap::<&str, &str>::from([("KUBECONFIG", "kube-config")]),
+        HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]),
     )
-    .await?;
+    .await
+}
 
-    _ = pods
-        .delete("dataset-copy", &DeleteParams::default().grace_period(0))
-        .await;
+async fn clear_dirs(connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
+    command_print(
+        "ansible-playbook",
+        &[
+            "clear-visualizations.yaml",
+            "--private-key",
+            &connect_args.ssh_key,
+            "-i",
+            "inventory/master-hosts.yaml",
+        ],
+        verbose,
+        [
+            &format!("Clearing visualization folder"),
+            &format!("Could not clear visualization folder"),
+            &format!("Cleared visualization folder"),
+        ],
+        "k3s",
+        HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]),
+    )
+    .await
+}
 
-    await_condition(pods.clone(), "dataset-copy", is_pod_running().not()).await?;
+async fn copy_datasets(
+    datasets: &[String],
+    connect_args: &PlatformInfo,
+    username: &str,
+    verbose: bool,
+) -> Result<()> {
+    for dataset in datasets {
+        command_print(
+            "rsync",
+            &[
+                "--blocking-io",
+                "-av",
+                "--progress",
+                "--stats",
+                "-rsh",
+                "-e",
+                &format!(
+                    "ssh -i {} -o StrictHostKeyChecking=no",
+                    connect_args.ssh_key
+                ),
+                &format!("../datasets/{dataset}/"),
+                &format!(
+                    "{username}@{}:/cluster-data/bench-storage/",
+                    connect_args.master_ip
+                ),
+            ],
+            verbose,
+            [
+                &format!("Copying dataset {dataset}"),
+                &format!("Could not copy dataset {dataset}"),
+                &format!("Copied dataset {dataset}"),
+            ],
+            "k3s",
+            HashMap::<&str, &str>::from([("KUBECONFIG", "kube-config")]),
+        )
+        .await?;
+    }
 
     Ok(())
 }
@@ -662,22 +665,32 @@ async fn visualize_dataset_algos(
     driver: &str,
     n_nodes: usize,
     host_ip: String,
+    nfs_ip: String,
 ) -> Result<()> {
     visualize(
         format!("{driver}-{n_nodes}"),
         host_ip,
         runs.iter().map(|x| x.run_id).collect::<Vec<i32>>(),
+        nfs_ip.clone(),
+        "bars",
     )
     .await
 }
 
-async fn visualize_algos_workers(runs: &[Run], datasets: &[String], host_ip: String) -> Result<()> {
+async fn visualize_algos_workers(
+    runs: &[Run],
+    datasets: &[String],
+    host_ip: String,
+    nfs_ip: String,
+) -> Result<()> {
     let mut jobs = Vec::new();
     for dataset in datasets {
         jobs.push(visualize(
             format!("{dataset}"),
             host_ip.clone(),
             runs.iter().map(|x| x.run_id).collect::<Vec<i32>>(),
+            nfs_ip.clone(),
+            "lines",
         ));
     }
     let j: Result<Vec<()>, _> = join_all(jobs).await.into_iter().collect();
@@ -693,23 +706,45 @@ fn env_var(name: &str, value: &str) -> EnvVar {
     }
 }
 
-async fn visualize(job_name: String, host_ip: String, run_ids: Vec<i32>) -> Result<()> {
+async fn visualize(
+    job_name: String,
+    host_ip: String,
+    run_ids: Vec<i32>,
+    nfs_ip: String,
+    graph_type: &str,
+) -> Result<()> {
     let mut job_spec = Job::default();
     job_spec.metadata.name = Some(job_name.clone());
+    job_spec.metadata.labels = Some(BTreeMap::from([("app".into(), "visualization".into())]));
     job_spec.spec = Some(JobSpec {
         backoff_limit: Some(0),
         ttl_seconds_after_finished: Some(0),
         template: PodTemplateSpec {
             spec: Some(PodSpec {
                 restart_policy: Some("Never".into()),
+                init_containers: Some(vec![Container {
+                    name: "create-folder".into(),
+                    image: Some("busybox".into()),
+                    command: Some(
+                        vec!["sh", "-c", &format!("mkdir -p /attached/{job_name}")]
+                            .into_iter()
+                            .map(|x| x.to_owned())
+                            .collect(),
+                    ),
+                    volume_mounts: Some(vec![VolumeMount {
+                        mount_path: "/attached".into(),
+                        name: "visualize-storage".into(),
+                        ..VolumeMount::default()
+                    }]),
+                    ..Default::default()
+                }]),
                 containers: vec![Container {
-                    args: Some(vec!["/cfg/config.yaml".into()]),
                     image: Some(format!("{host_ip}:30000/system/graphs:latest")),
                     image_pull_policy: Some("Always".into()),
                     name: "graphs-vis".into(),
                     volume_mounts: Some(vec![VolumeMount {
                         mount_path: "/attached".into(),
-                        name: "visualize-pvc".into(),
+                        name: "visualize-storage".into(),
                         ..VolumeMount::default()
                     }]),
                     env: Some(vec![
@@ -727,14 +762,15 @@ async fn visualize(job_name: String, host_ip: String, run_ids: Vec<i32>) -> Resu
                                 .collect::<Vec<String>>()
                                 .join(","),
                         ),
-                        env_var("GENERATE_GRAPHS", "bars"),
+                        env_var("GENERATE_GRAPHS", graph_type),
                     ]),
                     ..Container::default()
                 }],
                 volumes: Some(vec![Volume {
-                    name: "visualize-pvc".into(),
-                    persistent_volume_claim: Some(PersistentVolumeClaimVolumeSource {
-                        claim_name: "visualize-pvc".into(),
+                    name: "visualize-storage".into(),
+                    nfs: Some(NFSVolumeSource {
+                        path: "/visualize-storage".to_owned(),
+                        server: nfs_ip,
                         read_only: Some(false),
                     }),
                     ..Volume::default()
@@ -749,6 +785,30 @@ async fn visualize(job_name: String, host_ip: String, run_ids: Vec<i32>) -> Resu
     let jobs: Api<Job> = Api::default_namespaced(Client::try_default().await?);
     jobs.create(&PostParams::default(), &job_spec).await?;
 
+    let wait_for_job_close = spawn(async move {
+        if let Ok(jobs) = jobs
+            .list(&ListParams::default().labels("app=visualization"))
+            .await
+        {
+            if jobs.items.len() == 0 {
+                return;
+            }
+        }
+
+        let mut job_stream = jobs
+            .watch(&WatchParams::default().labels("app=visualization"), "0")
+            .await
+            .unwrap()
+            .boxed();
+        while let Ok(Some(status)) = job_stream.try_next().await {
+            match status {
+                WatchEvent::Deleted(_) => break,
+                s => info!("got event: {s:?}"),
+            }
+        }
+    });
+    wait_for_job_close.await?;
+
     Ok(())
 }
 
@@ -761,6 +821,10 @@ async fn start_metrics(host_ip: &str) -> Result<()> {
     pod_spec.metadata.name = Some("metrics".into());
     pod_spec.metadata.labels = Some(BTreeMap::from([("app".into(), "metrics".into())]));
     pod_spec.spec = Some(PodSpec {
+        node_selector: Some(BTreeMap::from([(
+            "node-role.kubernetes.io/master".into(),
+            "true".into(),
+        )])),
         containers: vec![Container {
             name: "metrics".into(),
             args: Some(
