@@ -1,4 +1,5 @@
 - name: Download generated graphs
+  hosts: all
   tasks:
     - name: Download generated graphs
       ansible.builtin.fetch:

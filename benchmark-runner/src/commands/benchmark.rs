@@ -530,7 +530,7 @@ async fn setup_pv_and_pvc(
                 if api_error.code != 409 {
                     bail!(err);
                 } else {
-                    info!("PV already exists, not creating");
+                    info!("PV {name} already exists, not creating");
                 }
             }
             _ => bail!(err),
@@ -559,7 +559,7 @@ async fn setup_pv_and_pvc(
                 if api_error.code != 409 {
                     bail!(err);
                 } else {
-                    info!("PVC already exists, not creating");
+                    info!("PVC {name} already exists, not creating");
                 }
             }
             _ => bail!(err),
@@ -664,7 +664,7 @@ async fn visualize_dataset_algos(
     host_ip: String,
 ) -> Result<()> {
     visualize(
-        format!("{driver}_{n_nodes}"),
+        format!("{driver}-{n_nodes}"),
         host_ip,
         runs.iter().map(|x| x.run_id).collect::<Vec<i32>>(),
     )
@@ -704,7 +704,7 @@ async fn visualize(job_name: String, host_ip: String, run_ids: Vec<i32>) -> Resu
                 restart_policy: Some("Never".into()),
                 containers: vec![Container {
                     args: Some(vec!["/cfg/config.yaml".into()]),
-                    image: Some(format!("{host_ip}:30000/benches/graphs:latest")),
+                    image: Some(format!("{host_ip}:30000/system/graphs:latest")),
                     image_pull_policy: Some("Always".into()),
                     name: "graphs-vis".into(),
                     volume_mounts: Some(vec![VolumeMount {

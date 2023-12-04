@@ -33,6 +33,7 @@ func New(sqlCfg config.SqlConfig, k8sCfg config.K8sConfig, runId int64, interval
 		k8sClient: k8sClient,
 		interval:  interval,
 		podNames:  podNames,
+		signal:    make(chan struct{}),
 	}, nil
 }
 
