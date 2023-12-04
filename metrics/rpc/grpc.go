@@ -27,7 +27,10 @@ func (s *MetricsServer) StartRecording(ctx context.Context, req *Start) (*Ack, e
 	var err error
 	s.Worker, err = k8s.New(s.SqlConfig, s.K8sConfig, req.RunId, int64(req.Interval), req.PodIds)
 	if err != nil {
-		return nil, err
+		return &Ack{
+			Status:  false,
+			Message: "Unable to start metrics worker, check metrics server log.",
+		}, err
 	}
 	s.Worker.Start()
 
