@@ -1,0 +1,39 @@
+version: "3.9"
+services:
+  graphs:
+    container_name: graphs
+    restart: always
+    build: ./
+    depends_on:
+      - benchmarks_db
+    environment:
+      - SELECT_LOG_ID=${SELECT_LOG_ID}
+      - GENERATE_GRAPHS=${GENERATE_GRAPHS} # values: "bars" | "histograms" | "all"
+      - GENERATE_LINES_DATASET=${GENERATE_LINES_DATASET}
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - ./results:/app/results
+      - .:/app
+    
+  benchmarks_db:
+    container_name: benchmarks_db
+    image: postgres:16.1-alpine
+    restart: unless-stopped
+    user: postgres
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_HOST=${POSTGRES_HOST}
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      # Copy the initialization sql script and optionally exisiting data.
+      - ./migrations/bin/init/db-dump.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db_volume:/var/lib/postgresql/data
+ 

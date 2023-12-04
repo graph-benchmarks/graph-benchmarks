@@ -3,13 +3,13 @@
   tasks:
     - name: Copy driver files
       ansible.builtin.copy:
-        src: "../drivers/{{ driver }}"
+        src: "{{ image_path }}"
         dest: .
 
     - name: Build image
       become: true
-      ansible.builtin.shell: "docker build -t {{ ansible_ssh_host }}:30000/benches/{{ driver }} ."
+      ansible.builtin.shell: "cd {{ image_name }} && docker build -t {{ ansible_ssh_host }}:30000/{{ repo }}/{{ image_name }} ."
 
     - name: Push image
       become: true
-      ansible.builtin.shell: "docker push {{ ansible_ssh_host }}:30000/benches/{{ driver }}"
+      ansible.builtin.shell: "docker push {{ ansible_ssh_host }}:30000/{{ repo }}/{{ image_name }}"

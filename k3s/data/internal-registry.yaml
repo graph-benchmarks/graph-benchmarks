@@ -49,7 +49,7 @@ spec:
       persistentVolumeClaim:
         claimName: registry-pvc
 ---
-kind: Service 
+kind: Service
 apiVersion: v1
 metadata:
   name: registry-service
@@ -58,5 +58,6 @@ spec:
   selector:
     registry: internal-registry
   ports:
-    - nodePort: 30000
-      port: 5000
+    - port: 5000
+      nodePort: 30000
+      protocol: TCP

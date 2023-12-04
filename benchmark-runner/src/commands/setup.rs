@@ -1,11 +1,12 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    time::Instant,
 };
 
 use anyhow::{bail, Result};
 use common::{
-    command::command,
+    command::{command_no_print, command_print, finish_progress, progress},
     config::{parse_config, KubeSetup, PlatformConnectInfo, SetupArgs},
     exit,
 };
@@ -14,6 +15,26 @@ use tokio::fs::{self, remove_file};
 use tracing::info;
 
 use crate::args::{self, Cli};
+
+struct ImageConfig<'a> {
+    name: &'a str,
+    path: &'a str,
+}
+
+const STANDARD_IMAGES: &[ImageConfig] = &[
+    ImageConfig {
+        name: "rsync",
+        path: "rsync",
+    },
+    ImageConfig {
+        name: "metrics",
+        path: "../metrics",
+    },
+    ImageConfig {
+        name: "graphs",
+        path: "../graphs",
+    },
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct K3sRegistry {
@@ -93,7 +114,7 @@ async fn setup_master_node(
     let master_hosts = HashMap::from([("master", Item { hosts, vars })]);
     fs::write(master_hosts_file, serde_yaml::to_string(&master_hosts)?).await?;
 
-    let registry_file = Path::new("k3s/data/k3s_registry.yaml");
+    let registry_file = Path::new("k3s/data/k3s_registry_config.yaml");
     if !registry_file.exists() {
         fs::write(registry_file, "").await?;
     }
@@ -112,13 +133,17 @@ async fn setup_master_node(
             endpoint: vec![format!("http://{}:30000", connect_args.master_ip)],
         },
     );
-    fs::write(registry_file, serde_yaml::to_string(&registry_cfg)?).await?;
+    fs::write(
+        "k3s/data/k3s_registry.yaml",
+        serde_yaml::to_string(&registry_cfg)?,
+    )
+    .await?;
 
     let mut env = HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]);
     if verbose {
         env.insert("DEBUG_ANSIBLE", "1");
     }
-    command(
+    command_print(
         "ansible-playbook",
         &[
             "main-master.yaml",
@@ -145,9 +170,10 @@ async fn setup_master_node(
     );
     fs::write("k3s/kube-config", kube_config).await?;
 
-    // TODO: load metrics & visualization containers
-    for driver in drivers {
-        command(
+    let pb = progress("Building & loading internal benchmark resources");
+    let start = Instant::now();
+    for image in STANDARD_IMAGES {
+        command_no_print(
             "ansible-playbook",
             &[
                 "load-image.yaml",
@@ -156,7 +182,34 @@ async fn setup_master_node(
                 "-i",
                 "inventory/master-hosts.yaml",
                 "--extra-vars",
-                &format!("driver={driver}"),
+                &format!(
+                    "image_path={} image_name={} repo=system",
+                    image.path, image.name
+                ),
+            ],
+            "k3s",
+            env.clone(),
+        )
+        .await?;
+    }
+    finish_progress(
+        "Internal benchmark resources ready",
+        "containers",
+        start.elapsed(),
+        Some(pb),
+    );
+
+    for driver in drivers {
+        command_print(
+            "ansible-playbook",
+            &[
+                "load-image.yaml",
+                "--private-key",
+                &connect_args.private_key_file,
+                "-i",
+                "inventory/master-hosts.yaml",
+                "--extra-vars",
+                &format!("image_path=../drivers/{driver} image_name={driver} repo=benches"),
             ],
             verbose,
             [
@@ -212,7 +265,7 @@ async fn setup_worker_node(connect_args: &PlatformConnectInfo, verbose: bool) ->
         env.insert("DEBUG_ANSIBLE", "1");
     }
 
-    command(
+    command_print(
         "ansible-playbook",
         &[
             "worker.yaml",
@@ -240,7 +293,7 @@ async fn setup_platform(
 ) -> Result<PlatformConnectInfo> {
     for p in base_provider::PROVIDERS {
         if p.name() == setup_args.provider {
-            if !cli.only_platform_outputs {
+            if !cli.only_software_setup {
                 p.pre_setup(setup_args, verbose).await?;
                 p.setup(setup_args, verbose).await?;
             }

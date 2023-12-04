@@ -1,9 +1,16 @@
 [setup]
 provider = "vagrant"
 platform = "vagrant-libvirt"
-node_configs = [3]
+# node configurations to benchmark, one of them is a master node
+node_configs = [2, 4, 10]
+# username of the benchmark nodes, used by ansible
 host_username = "vagrant"
 
+# arguments to pass to the platform provider
+[setup.platform_args]
+storage_pool_path = "/mnt/sdc/distrsys1/graph-benchmarks/storage_pool"
+
+# The way this data is used varies between providers, example below works for vagrant
 [setup.master_platform_env]
 cpu = "8"
 memory = "8192"
@@ -11,10 +18,12 @@ memory = "8192"
 [setup.worker_platform_env]
 cpu = "8"
 memory = "8192"
+#
 
 [benchmark]
 datasets = ["a", "b", "c"]
 drivers = ["graphscope"]
 
+# enable kubernetes dashboard
 [kubernetes]
 dashboard = true

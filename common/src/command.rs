@@ -32,7 +32,7 @@ pub async fn command_platform(
     msgs: [&str; 3],
     platform: &str,
 ) -> Result<()> {
-    command(
+    command_print(
         cmd,
         args,
         verbose,
@@ -41,6 +41,32 @@ pub async fn command_platform(
         HashMap::<String, String>::new(),
     )
     .await
+}
+
+pub async fn command_print(
+    cmd: &str,
+    args: &[&str],
+    verbose: bool,
+    msgs: [&str; 3],
+    dir: &str,
+    env: HashMap<
+        impl AsRef<str> + std::convert::AsRef<std::ffi::OsStr>,
+        impl AsRef<str> + std::convert::AsRef<std::ffi::OsStr>,
+    >,
+) -> Result<()> {
+    command(cmd, args, verbose, msgs, dir, env, true).await
+}
+
+pub async fn command_no_print(
+    cmd: &str,
+    args: &[&str],
+    dir: &str,
+    env: HashMap<
+        impl AsRef<str> + std::convert::AsRef<std::ffi::OsStr>,
+        impl AsRef<str> + std::convert::AsRef<std::ffi::OsStr>,
+    >,
+) -> Result<()> {
+    command(cmd, args, false, ["", "", ""], dir, env, false).await
 }
 
 pub async fn command(
@@ -53,6 +79,7 @@ pub async fn command(
         impl AsRef<str> + std::convert::AsRef<std::ffi::OsStr>,
         impl AsRef<str> + std::convert::AsRef<std::ffi::OsStr>,
     >,
+    print: bool,
 ) -> Result<()> {
     tracing::info!("{cmd} {args:?}");
     let mut cmd = Command::new(cmd);
@@ -65,7 +92,9 @@ pub async fn command(
     let mut pb = None;
     if !verbose {
         _cmd = _cmd.stdout(Stdio::piped());
-        pb = Some(progress(msgs[0]));
+        if print {
+            pb = Some(progress(msgs[0]));
+        }
     }
 
     let start_time = Instant::now();
@@ -81,7 +110,9 @@ pub async fn command(
         );
     }
 
-    finish_progress(msgs[2], dir, dur, pb);
+    if print {
+        finish_progress(msgs[2], dir, dur, pb);
+    }
     Ok(())
 }
 

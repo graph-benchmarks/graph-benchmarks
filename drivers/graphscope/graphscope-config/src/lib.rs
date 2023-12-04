@@ -19,7 +19,7 @@ impl DriverConfig for Graphscope {
         let services: Api<Service> = Api::default_namespaced(client);
         let coordinator = services.get("coordinator-service-graphscope").await?;
         Ok((
-            "coordinator-service-graphscope:{}".into(),
+            "coordinator-service-graphscope".into(),
             coordinator.spec.unwrap().ports.unwrap()[0].port as u16,
         ))
     }
