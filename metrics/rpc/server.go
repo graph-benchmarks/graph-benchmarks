@@ -13,8 +13,9 @@ type Rpc struct {
 	handler *grpc.Server
 }
 
-func (s *Rpc) StartServer(host string, port int64, k8sCfg config.K8sConfig, sqlCfg config.SqlConfig) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func (s *Rpc) StartServer(grpcCfg config.GrpcConfig, k8sCfg config.K8sConfig, sqlCfg config.SqlConfig) error {
+
+	lis, err := net.Listen("tcp", fmt.Sprintf("%s:%d", grpcCfg.Host, grpcCfg.Port))
 
 	if err != nil {
 		log.Fatalf("Failed to listen: %v", err)
