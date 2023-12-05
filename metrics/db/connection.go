@@ -3,11 +3,9 @@ package db
 import (
 	"context"
 	"fmt"
-	"graph-benchmarks/metrics-server/config"
-	"log"
-
 	"github.com/go-pg/pg/v10"
 	"github.com/go-pg/pg/v10/orm"
+	"graph-benchmarks/metrics-server/config"
 )
 
 type Handler struct {
@@ -23,14 +21,12 @@ func New(cfg config.SqlConfig) (Handler, error) {
 		Database: cfg.Database,
 	}
 
-	log.Println(cfg)
-
 	db := pg.Connect(&opts)
 
 	// Ping the database
 	ctx := context.Background()
 	if err := db.Ping(ctx); err != nil {
-		log.Panicf("Unable to connect to the database: %s", err)
+		return Handler{}, err
 	}
 
 	// Create table if not exists
@@ -39,7 +35,7 @@ func New(cfg config.SqlConfig) (Handler, error) {
 	})
 
 	if err != nil {
-		log.Panicf("Unable to create metrics table: %s", err)
+		return Handler{}, err
 	}
 
 	return Handler{db: db}, nil
