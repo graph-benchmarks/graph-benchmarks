@@ -156,7 +156,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     let mut runs: Vec<Run> = Vec::new();
 
     let (mut ws_stream, _) =
-        connect_async(format!("http://{}:30003/ws", connect_args.master_ip)).await?;
+        connect_async(format!("ws://{}:30003/ws", connect_args.master_ip)).await?;
 
     config.setup.node_configs.sort_by(|a, b| b.cmp(a));
     for n_nodes in config.setup.node_configs {
@@ -782,7 +782,7 @@ async fn visualize(
     job_spec.metadata.labels = Some(BTreeMap::from([("app".into(), "visualization".into())]));
     job_spec.spec = Some(JobSpec {
         backoff_limit: Some(0),
-        ttl_seconds_after_finished: Some(120),
+        ttl_seconds_after_finished: Some(0),
         template: PodTemplateSpec {
             spec: Some(PodSpec {
                 restart_policy: Some("Never".into()),

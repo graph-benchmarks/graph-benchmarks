@@ -137,11 +137,11 @@ def main():
 
     func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
 
-    requests.post('http://notifier.default.svc.cluster.local:30003/starting')
+    requests.post('http://notifier:8080/starting')
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     func_d[algo](g)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    requests.post('http://notifier.default.svc.cluster.local:30003/stopping')
+    requests.post('http://notifier:8080/stopping')
 
     duration = end_time - start_time
     log_metrics_sql(conn, id_, algo, dataset, "runtime", duration, vertex, edge, nodes)
