@@ -1,0 +1,12 @@
+- name: k3s-agent setup
+  hosts: workers
+  tasks:
+    - name: Setup
+      become: true
+      ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
+
+    - name: Restart k3s-agent
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: k3s-agent

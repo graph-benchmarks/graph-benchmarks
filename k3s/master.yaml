@@ -28,6 +28,18 @@
             update_cache: true
             state: latest
 
+        - name: Install rsync
+          become: true
+          ansible.builtin.apt:
+            name: rsync
+            state: latest
+
+        - name: Install nfs-common
+          become: true
+          ansible.builtin.apt:
+            name: nfs-common
+            state: latest
+
         - name: Install pre-requisites
           ansible.builtin.pip:
             name:
@@ -86,6 +98,23 @@
         state: present
         apply: true
         src: admin-user.yaml
+
+    - name: Copy nfs yaml
+      ansible.builtin.copy:
+        src: data/nfs.yaml
+        dest: nfs.yaml
+        mode: 'g+w'
+
+    - name: Create nfs server
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        namespace: default
+        src: nfs.yaml
+
+    - name: Set nfs dir permissions
+      become: true
+      ansible.builtin.shell: chmod 777 /cluster-data && mkdir -p /cluster-data/visualize-storage
 
     - name: Install docker
       become: true

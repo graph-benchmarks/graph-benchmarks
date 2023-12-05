@@ -41,10 +41,9 @@ pub async fn dashboard(_: &Cli) -> Result<()> {
         )
         .await?;
     println!("Access token: {}", token.status.unwrap().token);
-    println!("\nListening on 8443!");
 
     let pod_name = p.items[0].metadata.name.as_ref().unwrap().clone();
-    server(pods, pod_name).await?;
+    server(pods, pod_name, 8443).await?;
     Ok(())
 }
 
@@ -60,35 +59,38 @@ pub async fn postgres(_: &Cli) -> Result<()> {
     }
 
     let pod_name = p.items[0].metadata.name.as_ref().unwrap().clone();
-    server(pods, pod_name).await?;
+    server(pods, pod_name, 5432).await?;
     Ok(())
 }
 
-pub async fn server(pods: Api<Pod>, pod_name: String) -> Result<()> {
-    let server = TcpListenerStream::new(TcpListener::bind("0.0.0.0:8443").await.unwrap())
-        .take_until(tokio::signal::ctrl_c())
-        .try_for_each(|mut client_conn| async {
-            let pods = pods.clone();
-            let pn = pod_name.clone();
-            tokio::spawn(async move {
-                let mut forwarder = pods.portforward(&pn, &[8443]).await.unwrap();
-                let mut upstream_conn = forwarder
-                    .take_stream(8443)
-                    .context("port not found in forwarder")
-                    .unwrap();
+pub async fn server(pods: Api<Pod>, pod_name: String, port: u16) -> Result<()> {
+    println!("\nListening on {port}!");
+    let server =
+        TcpListenerStream::new(TcpListener::bind(format!("0.0.0.0:{port}")).await.unwrap())
+            .take_until(tokio::signal::ctrl_c())
+            .try_for_each(|mut client_conn| async {
+                let pods = pods.clone();
+                let pn = pod_name.clone();
+                tokio::spawn(async move {
+                    let mut forwarder = pods.portforward(&pn, &[port]).await.unwrap();
+                    let mut upstream_conn = forwarder
+                        .take_stream(port)
+                        .context("port not found in forwarder")
+                        .unwrap();
 
-                if let Err(_) =
-                    tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await
-                {
-                    info!("Client left!")
-                }
-                drop(upstream_conn);
-                if let Err(_) = forwarder.join().await {
-                    info!("Connection dropped!");
-                }
+                    if let Err(_) =
+                        tokio::io::copy_bidirectional(&mut client_conn, &mut upstream_conn).await
+                    {
+                        info!("Could not get stream!");
+                        return;
+                    }
+                    drop(upstream_conn);
+                    if let Err(_) = forwarder.join().await {
+                        info!("Connection dropped!");
+                    }
+                });
+                Ok(())
             });
-            Ok(())
-        });
     if let Err(e) = server.await {
         exit!(e, "Forwarder server error");
     }

@@ -6,9 +6,11 @@ metadata:
   labels:
     type: local
 spec:
+  nodeSelector:
+    node-role.kubernetes.io/master: "true"
   storageClassName: manual
   capacity:
-    storage: 10Gi
+    storage: 1Gi
   persistentVolumeReclaimPolicy: Retain
   accessModes:
     - ReadWriteOnce
@@ -46,6 +48,8 @@ spec:
       labels:
         app: postgres
     spec:
+      nodeSelector:
+        node-role.kubernetes.io/master: "true"
       containers:
         - name: postgres
           image: postgres

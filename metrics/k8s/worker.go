@@ -18,7 +18,7 @@ type MetricsPollingWorker struct {
 }
 
 func New(sqlCfg config.SqlConfig, k8sCfg config.K8sConfig, runId int64, interval int64, podNames []string) (MetricsPollingWorker, error) {
-	db, err := db.New(sqlCfg)
+	database, err := db.New(sqlCfg)
 	if err != nil {
 		log.Panicf("Unable to initalize connection to database: %v", err)
 	}
@@ -28,11 +28,12 @@ func New(sqlCfg config.SqlConfig, k8sCfg config.K8sConfig, runId int64, interval
 	}
 
 	return MetricsPollingWorker{
-		db:        db,
+		db:        database,
 		runId:     runId,
 		k8sClient: k8sClient,
 		interval:  interval,
 		podNames:  podNames,
+		signal:    make(chan struct{}),
 	}, nil
 }
 
