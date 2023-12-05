@@ -1,3 +1,4 @@
+import re
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -5,7 +6,7 @@ import numpy as np
 import os
 from datetime import datetime
 
-def generate_histograms(data_rows, output_directory, select_log_id):
+def generate_histograms(data_rows, output_directory, select_log_ids):
     """Generate the graph and save it in a png file. The graph has multiple
     algorithm histrograms with multiple bars for each dataset performance
     per algorithm.
@@ -18,6 +19,9 @@ def generate_histograms(data_rows, output_directory, select_log_id):
     data_groups = {}
     algorithms = set()
     datasets = set()
+    
+    # Get the log_ids to use.
+    log_ids = set([int(n) for n in sum([l.split(',') for l in re.findall(r'[\d,]+[,\d]', select_log_ids)], []) if n.isdigit()])
 
     for row in data_rows:
         log_id, algo, dataset, log_type, time, vertex, edge, workers = row
@@ -64,7 +68,7 @@ def generate_histograms(data_rows, output_directory, select_log_id):
     timestamp_str = datetime.now().strftime("%Y%m%d%H%M")
     output_filename = os.path.join(
         output_directory,
-        f"result-bar-{select_log_id}-{timestamp_str}.png"
+        f"result-bar-{timestamp_str}.png"
         )
     plt.savefig(output_filename)
     print(f"Graph saved to {output_filename}")

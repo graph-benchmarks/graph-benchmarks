@@ -18,8 +18,8 @@ output_directory = os.environ.get("OUTPUT_DIR")
 
 # For now this id is not used, since the associated table and schema isn't
 # defined yet.
-select_log_id = os.environ.get("SELECT_LOG_ID")
-print(f"Selecting data of log id: {select_log_id}")
+select_log_ids = os.environ.get("SELECT_LOG_IDS")
+print(f"Selecting data of log ids: {select_log_ids}")
 
 lines_dataset = os.environ.get("GENERATE_LINES_DATASET")
 graphs_to_generate = os.environ.get("GENERATE_GRAPHS")
@@ -49,12 +49,12 @@ def main():
         
         # Only generate the declared graphs.
         if (graphs_to_generate == "bars"):
-            generate_histograms(rows, output_directory, select_log_id)
+            generate_histograms(rows, output_directory, select_log_ids)
         elif (graphs_to_generate == "lines"):
-            generate_line_graph(rows, output_directory, select_log_id, lines_dataset)
+            generate_line_graph(rows, output_directory, lines_dataset)
         elif (graphs_to_generate == "all"):
-            generate_histograms(rows, output_directory, select_log_id)
-            generate_line_graph(rows, output_directory, select_log_id, lines_dataset)
+            generate_histograms(rows, output_directory, select_log_ids)
+            generate_line_graph(rows, output_directory, lines_dataset)
         else:
             print("No graphs declared to generate.")
         
