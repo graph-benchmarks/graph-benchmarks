@@ -557,7 +557,7 @@ async fn start_bench(
     };
     job_spec.spec = Some(JobSpec {
         backoff_limit: Some(0),
-        ttl_seconds_after_finished: Some(60),
+        ttl_seconds_after_finished: Some(0),
         template: PodTemplateSpec {
             metadata: Some(ObjectMeta {
                 labels: Some(BTreeMap::from([("app".into(), "graph-bench".into())])),
@@ -996,78 +996,5 @@ async fn start_notifier(host_ip: String) -> Result<()> {
     service
         .create(&PostParams::default(), &service_spec)
         .await?;
-    Ok(())
-}
-
-async fn start_metrics(host_ip: &str) -> Result<()> {
-    _ = stop_metrics().await;
-
-    let client = Client::try_default().await?;
-    let pods: Api<Pod> = Api::default_namespaced(client.clone());
-    let mut pod_spec = Pod::default();
-    pod_spec.metadata.name = Some("metrics".into());
-    pod_spec.metadata.labels = Some(BTreeMap::from([("app".into(), "metrics".into())]));
-    pod_spec.spec = Some(PodSpec {
-        containers: vec![Container {
-            name: "metrics".into(),
-            args: Some(
-                vec![
-                    "-psql-host",
-                    POSTGRES_CONFIG.host,
-                    "-psql-port",
-                    &POSTGRES_CONFIG.port.to_string(),
-                    "-psql-username",
-                    POSTGRES_CONFIG.user,
-                    "-psql-password",
-                    POSTGRES_CONFIG.ps,
-                    "-psql-db",
-                    POSTGRES_CONFIG.db,
-                ]
-                .into_iter()
-                .map(|x| x.to_owned())
-                .collect(),
-            ),
-            ports: Some(vec![ContainerPort {
-                container_port: 9090,
-                ..Default::default()
-            }]),
-            image: Some(format!("{host_ip}:30000/system/metrics:latest")),
-            ..Container::default()
-        }],
-        service_account: Some("admin-user".into()),
-        ..PodSpec::default()
-    });
-    pods.create(&PostParams::default(), &pod_spec).await?;
-
-    let service: Api<Service> = Api::default_namespaced(client);
-    let mut service_spec = Service::default();
-    service_spec.metadata.name = Some("metrics".into());
-    service_spec.metadata.namespace = Some("default".into());
-    service_spec.spec = Some(ServiceSpec {
-        selector: Some(BTreeMap::from([("app".into(), "metrics".into())])),
-        type_: Some("NodePort".into()),
-        ports: Some(vec![ServicePort {
-            port: 9090,
-            node_port: Some(30001),
-            ..Default::default()
-        }]),
-        ..Default::default()
-    });
-    service
-        .create(&PostParams::default(), &service_spec)
-        .await?;
-    Ok(())
-}
-
-async fn stop_metrics() -> Result<()> {
-    let client = Client::try_default().await?;
-    let pods: Api<Pod> = Api::default_namespaced(client.clone());
-    let service: Api<Service> = Api::default_namespaced(client);
-    _ = pods
-        .delete("metrics", &DeleteParams::default().grace_period(0))
-        .await;
-    _ = service
-        .delete("metrics", &DeleteParams::default().grace_period(0))
-        .await;
     Ok(())
 }
