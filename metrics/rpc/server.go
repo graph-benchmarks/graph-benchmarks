@@ -23,12 +23,12 @@ func (s *Rpc) StartServer(grpcCfg config.GrpcConfig, k8sCfg config.K8sConfig, sq
 
 	var opts []grpc.ServerOption
 	s.handler = grpc.NewServer(opts...)
+	//reflection.Register(s.handler)
 	metricsServer := MetricsServer{}
 	metricsServer.SqlConfig = sqlCfg
 	RegisterMetricsCollectorServer(s.handler, &metricsServer)
 
 	// Start grpc server
-	log.Println("listening!")
 	if err := s.handler.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 		return err

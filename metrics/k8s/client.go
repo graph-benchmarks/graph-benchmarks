@@ -20,23 +20,26 @@ func NewClients() (Client, error) {
 	// Creates the in-cluster config
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		panic(err.Error())
+		return Client{}, err
 	}
 
 	// Creates the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		panic(err.Error())
+		return Client{}, err
 	}
 
 	// Creates the metrics client
 	mc, err := metrics.NewForConfig(config)
+	if err != nil {
+		return Client{}, err
+	}
 
 	return Client{
 		restConfig:    config,
 		clientset:     clientset,
 		metricsClient: mc,
-	}, err
+	}, nil
 
 }
 

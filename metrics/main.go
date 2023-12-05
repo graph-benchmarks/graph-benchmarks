@@ -31,14 +31,13 @@ func main() {
 		var err error
 		cfg, err = config.FromFile(*cfgPath)
 		if err != nil {
-			panic(err)
+			log.Panicf("Unable to parse config file: %v", err)
 		}
 	}
-	log.Println(cfg)
 
 	rpc := rpc.Rpc{}
 	err := rpc.StartServer(cfg.Grpc, cfg.K8s, cfg.Sql)
 	if err != nil {
-		panic(err)
+		log.Panicf("Unable to start GRPC server: %v", err)
 	}
 }
