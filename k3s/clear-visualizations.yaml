@@ -1,0 +1,6 @@
+- name: Clear visualizations folder
+  hosts: master
+  tasks:
+    - name: Clear visualizations folder
+      become: true
+      ansible.builtin.shell: rm -rf /cluster-data/visualize-storage/*

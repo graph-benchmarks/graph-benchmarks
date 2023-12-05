@@ -4,6 +4,7 @@
     - name: Remove graphscope
       kubernetes.core.helm:
         name: graphscope
-        release_namespace: default
+        namespace: default
         chart_ref: graphscope/graphscope
-        release_state: absent
+        state: absent
+        wait: true

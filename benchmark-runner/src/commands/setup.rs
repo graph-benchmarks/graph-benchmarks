@@ -23,16 +23,16 @@ struct ImageConfig<'a> {
 
 const STANDARD_IMAGES: &[ImageConfig] = &[
     ImageConfig {
-        name: "rsync",
-        path: "rsync",
-    },
-    ImageConfig {
         name: "metrics",
         path: "../metrics",
     },
     ImageConfig {
         name: "graphs",
         path: "../graphs",
+    },
+    ImageConfig {
+        name: "notifier",
+        path: "../notifier",
     },
 ];
 

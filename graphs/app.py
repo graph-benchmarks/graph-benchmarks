@@ -40,7 +40,7 @@ def main():
         print("connected to db...")
 
         # Query the data from the database.
-        query = "SELECT * FROM driver_logging"
+        query = "SELECT * FROM gn_test"
         cursor.execute(query)
         
         # Fetch the results and iterate over them. Group first per logged algorithm

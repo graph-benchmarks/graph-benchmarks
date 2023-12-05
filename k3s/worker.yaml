@@ -1,24 +1,9 @@
+- name: Setup worker
+  ansible.builtin.import_playbook: k3s-agent.yaml
+
 - name: Worker node setup
   hosts: workers
   tasks:
-    - name: Check if k3s agent is running
-      become: true
-      ansible.builtin.systemd:
-        name: k3s-agent
-      register: k3s_agent_status
-
-    - name: Debug
-      when: (lookup('env', "DEBUG_ANSIBLE") | length) > 0
-      ansible.builtin.debug:
-        msg: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
-
-    - name: Once setup
-      when: k3s_agent_status.status.ActiveState != 'active'
-      become: true
-      block:
-        - name: Install k3s agent
-          ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
-
     - name: Create a directory if it does not exist
       become: true
       ansible.builtin.file:
@@ -38,3 +23,9 @@
       ansible.builtin.systemd:
         state: restarted
         name: k3s-agent
+
+    - name: Install nfs-common
+      become: true
+      ansible.builtin.apt:
+        name: nfs-common
+        state: latest
