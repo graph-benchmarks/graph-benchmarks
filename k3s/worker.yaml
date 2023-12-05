@@ -1,9 +1,9 @@
+- name: Setup worker
+  ansible.builtin.import_playbook: k3s-agent.yaml
+
 - name: Worker node setup
   hosts: workers
   tasks:
-    - name: Setup master
-      ansible.builtin.import_playbook: k3s-agent.yaml
-
     - name: Create a directory if it does not exist
       become: true
       ansible.builtin.file:
@@ -23,7 +23,7 @@
       ansible.builtin.systemd:
         state: restarted
         name: k3s-agent
-    
+
     - name: Install nfs-common
       become: true
       ansible.builtin.apt:

@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::Result;
 use common::{
-    command::{command_print, finish_progress, progress},
+    command::{command_print, finish_progress, progress, GREEN_TICK},
     config::parse_config,
     exit,
     provider::PlatformInfo,
@@ -18,7 +18,10 @@ use diesel_async::{
     RunQueryDsl,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use futures_util::{future::join_all, StreamExt, TryStreamExt};
+use futures_util::{
+    future::{join, join_all},
+    StreamExt, TryStreamExt,
+};
 use k8s_openapi::api::{
     batch::v1::{Job, JobSpec},
     core::v1::{
@@ -33,7 +36,8 @@ use kube::{
     Api, Client, ResourceExt,
 };
 use serde::{Deserialize, Serialize};
-use tokio::spawn;
+use tokio::{net::TcpStream, spawn};
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tracing::info;
 
 use crate::{
@@ -99,6 +103,11 @@ struct PostgresConfig<'a> {
     ps: &'a str,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct BenchStartEvent {
+    status: bool,
+}
+
 pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     let mut config = parse_config(&cli.file)?;
 
@@ -119,6 +128,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     .await?;
 
     env::set_var("KUBECONFIG", "k3s/kube-config");
+    start_notifier(connect_args.master_ip.to_string()).await?;
     copy_datasets(
         &config.benchmark.datasets,
         &connect_args,
@@ -145,6 +155,9 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
 
     let mut runs: Vec<Run> = Vec::new();
 
+    let (mut ws_stream, _) =
+        connect_async(format!("http://{}:30003/ws", connect_args.master_ip)).await?;
+
     config.setup.node_configs.sort_by(|a, b| b.cmp(a));
     for n_nodes in config.setup.node_configs {
         new_cluster_node_count(n_nodes).await?;
@@ -155,7 +168,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
             };
             let runs_start_point = runs.len();
 
-            driver_config.set_node_config(n_nodes, 2, 1024).await?;
+            driver_config.set_node_config(n_nodes, 4, 2048).await?;
             setup_graph_platform(&driver, &connect_args, cli.verbose).await?;
             let service_ip = driver_config.get_service_ip().await?;
             let pod_ids = driver_config.metrics_pod_ids().await?;
@@ -203,27 +216,32 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
 
                     let start = Instant::now();
                     start_bench(&driver, &connect_args.master_ip, &cfg, nfs_ip.clone()).await?;
+
+                    match ws_stream.try_next().await? {
+                        Some(msg) => {
+                            let msg: BenchStartEvent = serde_json::from_str(&msg.into_text()?)?;
+                            if !msg.status {
+                                exit!(
+                                    "",
+                                    "Expected bench starting message, got bench ending message"
+                                );
+                            }
+                        }
+                        None => exit!("", "Received incorrect benchmark starting signal"),
+                    }
+
                     let metrics_ip = format!("http://{}:30001", connect_args.master_ip);
                     start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
                     info!("started recording metrics on {metrics_ip}");
 
-                    let client = Client::try_default().await?;
-                    let api: Api<Job> = Api::default_namespaced(client);
+                    let (delete_status, stop_recording_status) = join(
+                        wait_for_bench_delete(),
+                        wait_for_ws_end_message(ws_stream, metrics_ip, pod_ids.clone(), run_id),
+                    )
+                    .await;
+                    delete_status?;
+                    ws_stream = stop_recording_status?;
 
-                    let mut job_stream = api
-                        .watch(&WatchParams::default().labels("app=graph-bench"), "0")
-                        .await
-                        .unwrap()
-                        .boxed();
-                    while let Ok(Some(status)) = job_stream.try_next().await {
-                        match status {
-                            WatchEvent::Deleted(_) => break,
-                            s => info!("got event: {s:?}"),
-                        }
-                    }
-
-                    stop_recording(metrics_ip, pod_ids.clone(), run_id).await?;
-                    info!("stopped recording metrics");
                     finish_progress(
                         "Done benchmarking",
                         &format!("{algorithm} on {dataset}"),
@@ -244,6 +262,8 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
         }
     }
 
+    ws_stream.close(None).await?;
+
     visualize_algos_workers(
         &runs,
         &config.benchmark.datasets,
@@ -253,8 +273,50 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     .await?;
     copy_generated_graphs(cli.verbose, &connect_args).await?;
 
-    stop_metrics().await?;
+    stop_pod_service("metrics").await?;
+    stop_pod_service("notifier").await?;
 
+    Ok(())
+}
+
+async fn wait_for_ws_end_message(
+    mut ws_stream: WebSocketStream<MaybeTlsStream<TcpStream>>,
+    metrics_ip: String,
+    pod_ids: Vec<String>,
+    run_id: i32,
+) -> Result<WebSocketStream<MaybeTlsStream<TcpStream>>> {
+    match ws_stream.try_next().await? {
+        Some(msg) => {
+            let msg: BenchStartEvent = serde_json::from_str(&msg.into_text()?)?;
+            if msg.status {
+                exit!(
+                    "",
+                    "Expected bench stopping message, got bench starting message"
+                );
+            }
+            stop_recording(metrics_ip, pod_ids, run_id).await?;
+            info!("stopped recording metrics");
+            Ok(ws_stream)
+        }
+        None => exit!("", "Received incorrect benchmark stopping signal"),
+    }
+}
+
+async fn wait_for_bench_delete() -> Result<()> {
+    let client = Client::try_default().await?;
+    let api: Api<Job> = Api::default_namespaced(client);
+
+    let mut job_stream = api
+        .watch(&WatchParams::default().labels("app=graph-bench"), "0")
+        .await
+        .unwrap()
+        .boxed();
+    while let Ok(Some(status)) = job_stream.try_next().await {
+        match status {
+            WatchEvent::Deleted(_) => break,
+            s => info!("got event: {s:?}"),
+        }
+    }
     Ok(())
 }
 
@@ -308,7 +370,9 @@ async fn new_cluster_node_count(n_nodes: usize) -> Result<()> {
             .map(|x| x.metadata.name.unwrap())
             .collect::<Vec<String>>();
         for node in delete_nodes {
+            info!("Removing node {node}");
             api.delete(&node, &DeleteParams::default()).await?;
+            println!("{} Removed node {node}", GREEN_TICK.to_string());
         }
     }
     Ok(())
@@ -718,7 +782,7 @@ async fn visualize(
     job_spec.metadata.labels = Some(BTreeMap::from([("app".into(), "visualization".into())]));
     job_spec.spec = Some(JobSpec {
         backoff_limit: Some(0),
-        ttl_seconds_after_finished: Some(0),
+        ttl_seconds_after_finished: Some(120),
         template: PodTemplateSpec {
             spec: Some(PodSpec {
                 restart_policy: Some("Never".into()),
@@ -813,7 +877,7 @@ async fn visualize(
 }
 
 async fn start_metrics(host_ip: &str) -> Result<()> {
-    _ = stop_metrics().await;
+    _ = stop_pod_service("metrics").await;
 
     let client = Client::try_default().await?;
     let pods: Api<Pod> = Api::default_namespaced(client.clone());
@@ -876,15 +940,61 @@ async fn start_metrics(host_ip: &str) -> Result<()> {
     Ok(())
 }
 
-async fn stop_metrics() -> Result<()> {
+async fn stop_pod_service(name: &str) -> Result<()> {
     let client = Client::try_default().await?;
     let pods: Api<Pod> = Api::default_namespaced(client.clone());
     let service: Api<Service> = Api::default_namespaced(client);
     _ = pods
-        .delete("metrics", &DeleteParams::default().grace_period(0))
+        .delete(name, &DeleteParams::default().grace_period(0))
         .await;
     _ = service
-        .delete("metrics", &DeleteParams::default().grace_period(0))
+        .delete(name, &DeleteParams::default().grace_period(0))
         .await;
+    Ok(())
+}
+
+async fn start_notifier(host_ip: String) -> Result<()> {
+    _ = stop_pod_service("notifier").await;
+
+    let client = Client::try_default().await?;
+    let pods: Api<Pod> = Api::default_namespaced(client.clone());
+    let mut pod_spec = Pod::default();
+    pod_spec.metadata.name = Some("notifier".into());
+    pod_spec.metadata.labels = Some(BTreeMap::from([("app".into(), "notifier".into())]));
+    pod_spec.spec = Some(PodSpec {
+        node_selector: Some(BTreeMap::from([(
+            "node-role.kubernetes.io/master".into(),
+            "true".into(),
+        )])),
+        containers: vec![Container {
+            name: "notifier".into(),
+            ports: Some(vec![ContainerPort {
+                container_port: 8080,
+                ..Default::default()
+            }]),
+            image: Some(format!("{host_ip}:30000/system/notifier:latest")),
+            ..Container::default()
+        }],
+        ..PodSpec::default()
+    });
+    pods.create(&PostParams::default(), &pod_spec).await?;
+
+    let service: Api<Service> = Api::default_namespaced(client);
+    let mut service_spec = Service::default();
+    service_spec.metadata.name = Some("notifier".into());
+    service_spec.metadata.namespace = Some("default".into());
+    service_spec.spec = Some(ServiceSpec {
+        selector: Some(BTreeMap::from([("app".into(), "notifier".into())])),
+        type_: Some("NodePort".into()),
+        ports: Some(vec![ServicePort {
+            port: 8080,
+            node_port: Some(30003),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    });
+    service
+        .create(&PostParams::default(), &service_spec)
+        .await?;
     Ok(())
 }

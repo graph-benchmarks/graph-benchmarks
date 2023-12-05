@@ -5,6 +5,7 @@ import psycopg
 import psycopg.sql as sql
 import yaml
 import time
+import requests
 from graphscope.framework.graph import Graph, GraphDAGNode
 from graphscope.nx.classes.function import number_of_edges, number_of_nodes
 
@@ -15,7 +16,7 @@ def check_table(conn: psycopg.Connection)->None:
     ret = cur.execute(query)
     
     if not ret.fetchone()[0]:
-        query = sql.SQL("CREATE TABLE gn_test(id INTEGER, algo VARCHAR(256), dataset VARCHAR(256), type VARCHAR(256), time INTEGER, vertex INTEGER, edge INTEGER, node INTEGER)")  
+        query = sql.SQL("CREATE TABLE gn_test(id INTEGER, algo VARCHAR(256), dataset VARCHAR(256), type VARCHAR(256), time INTEGER, vertex INTEGER, edge INTEGER, nodes INTEGER)")  
         cur.execute(query)
  
     conn.commit()       
@@ -136,9 +137,11 @@ def main():
 
     func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
 
+    requests.post('http://notifier.default.svc.cluster.local:30003/starting')
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     func_d[algo](g)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    requests.post('http://notifier.default.svc.cluster.local:30003/stopping')
 
     duration = end_time - start_time
     log_metrics_sql(conn, id_, algo, dataset, "runtime", duration, vertex, edge, nodes)

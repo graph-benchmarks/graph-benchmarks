@@ -30,6 +30,10 @@ const STANDARD_IMAGES: &[ImageConfig] = &[
         name: "graphs",
         path: "../graphs",
     },
+    ImageConfig {
+        name: "notifier",
+        path: "../notifier",
+    },
 ];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

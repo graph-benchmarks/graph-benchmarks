@@ -13,7 +13,7 @@ use crate::exit;
 
 lazy_static::lazy_static! {
     static ref DOTS_STYLE: ProgressStyle = ProgressStyle::with_template("{spinner} {msg} {elapsed_precise}").unwrap().tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏");
-    static ref GREEN_TICK: StyledObject<&'static str> = style("✔").green();
+    pub static ref GREEN_TICK: StyledObject<&'static str> = style("✔").green();
     static ref RED_CROSS: StyledObject<&'static str> = style("✗").red();
 }
 
