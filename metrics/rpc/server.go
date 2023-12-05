@@ -24,8 +24,9 @@ func (s *Rpc) StartServer(grpcCfg config.GrpcConfig, k8sCfg config.K8sConfig, sq
 	var opts []grpc.ServerOption
 	s.handler = grpc.NewServer(opts...)
 	//reflection.Register(s.handler)
-	metricsServer := MetricsServer{}
-	metricsServer.SqlConfig = sqlCfg
+	metricsServer := MetricsServer{
+		sqlConfig: sqlCfg,
+	}
 	RegisterMetricsCollectorServer(s.handler, &metricsServer)
 
 	// Start grpc server
