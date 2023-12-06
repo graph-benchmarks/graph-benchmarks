@@ -1,4 +1,5 @@
 import sys
+import requests
 import graphscope as gs
 import psycopg
 import psycopg.sql as sql
@@ -14,7 +15,7 @@ def check_table(conn: psycopg.Connection)->None:
     ret = cur.execute(query)
     
     if not ret.fetchone()[0]:
-        query = sql.SQL("CREATE TABLE gn_test(id INTEGER, algo VARCHAR(256), dataset VARCHAR(256), type VARCHAR(256), time INTEGER, vertex INTEGER, edge INTEGER)")  
+        query = sql.SQL("CREATE TABLE gn_test(id INTEGER, algo VARCHAR(256), dataset VARCHAR(256), type VARCHAR(256), time INTEGER, vertex INTEGER, edge INTEGER, nodes INTEGER)")  
         cur.execute(query)
  
     conn.commit()       
@@ -29,15 +30,15 @@ def graph_vertex_edge_count(sess:gs.Session, g:Graph | GraphDAGNode):
     return tot_vertex, tot_edges
 
 
-def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str, type_:str, time:float, vertex:int, edge:int)->None:
-    columns = ["id", "algo", "dataset", "type", "time", "vertex", "edge"]
+def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str, type_:str, time:float, vertex:int, edge:int, nodes: int)->None:
+    columns = ["id", "algo", "dataset", "type", "time", "vertex", "edge", "nodes"]
     cur = conn.cursor()
     query = sql.SQL("INSERT INTO gn_test ({}) VALUES ({})").format(
             sql.SQL(', ').join(map(sql.Identifier, columns)),
             sql.SQL(', ').join(sql.Placeholder() * len(columns)))
 
     time_ms = time // 1000000
-    cur.execute(query, (log_id, algo, dataset, type_, time_ms, vertex, edge))
+    cur.execute(query, (log_id, algo, dataset, type_, time_ms, vertex, edge, nodes))
     conn.commit()
     cur.close()
 
@@ -123,6 +124,7 @@ def main():
     #sql params
     id_ = int(config["config"]["id"])
     algo = config["config"]["algo"]
+    nodes = config["config"]["nodes"]
 
     log_file = config["config"]["log_file"]
     lf = open(log_file, "w+")
@@ -161,14 +163,16 @@ def main():
     #vertex = graph_vertex_count(g)
     #edge = graph_edge_count(g)
 
-    log_metrics_sql(conn, id_, algo, dataset, "loading", duration, vertex, edge)
+    log_metrics_sql(conn, id_, algo, dataset, "loading", duration, vertex, edge, nodes)
 
     func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
 
+    requests.post('http://notifier:8080/starting')
     dur = func_d[algo](config, g) 
+    requests.post('http://notifier:8080/stopping')
 
     if dur > 0:
-        log_metrics_sql(conn, id_, algo, dataset, "runtime", dur, vertex, edge)
+        log_metrics_sql(conn, id_, algo, dataset, "runtime", dur, vertex, edge, nodes)
 
     lf.close()
     sess.close()
