@@ -168,7 +168,19 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
             };
             let runs_start_point = runs.len();
 
-            driver_config.set_node_config(n_nodes, 4, 2048).await?;
+            info!("{:#?}", config.setup.graph_platform_args);
+            driver_config
+                .set_node_config(
+                    n_nodes,
+                    config
+                        .setup
+                        .graph_platform_args
+                        .as_ref()
+                        .unwrap_or(&HashMap::new())
+                        .get(driver)
+                        .map(|x| x.to_owned()),
+                )
+                .await?;
             setup_graph_platform(&driver, &connect_args, cli.verbose).await?;
             let service_ip = driver_config.get_service_ip().await?;
             let pod_ids = driver_config.metrics_pod_ids().await?;
@@ -731,6 +743,8 @@ async fn visualize_dataset_algos(
     host_ip: String,
     nfs_ip: String,
 ) -> Result<()> {
+    let pb = progress(&format!("Generating visualization for ({driver})"));
+    let start = Instant::now();
     visualize(
         format!("{driver}-{n_nodes}"),
         host_ip,
@@ -738,7 +752,14 @@ async fn visualize_dataset_algos(
         nfs_ip.clone(),
         "bars",
     )
-    .await
+    .await?;
+    finish_progress(
+        "Generated visualization for",
+        driver,
+        start.elapsed(),
+        Some(pb),
+    );
+    Ok(())
 }
 
 async fn visualize_algos_workers(
@@ -747,6 +768,8 @@ async fn visualize_algos_workers(
     host_ip: String,
     nfs_ip: String,
 ) -> Result<()> {
+    let pb = progress(&format!("Generating overall visualizations"));
+    let start = Instant::now();
     let mut jobs = Vec::new();
     for dataset in datasets {
         jobs.push(visualize(
@@ -759,6 +782,12 @@ async fn visualize_algos_workers(
     }
     let j: Result<Vec<()>, _> = join_all(jobs).await.into_iter().collect();
     j?;
+    finish_progress(
+        "Generated overall visualizations ",
+        "",
+        start.elapsed(),
+        Some(pb),
+    );
     Ok(())
 }
 
@@ -819,7 +848,7 @@ async fn visualize(
                         env_var("POSTGRES_DB", POSTGRES_CONFIG.db),
                         env_var("OUTPUT_DIR", &format!("/attached/{job_name}")),
                         env_var(
-                            "SELECT_LOG_ID",
+                            "SELECT_LOG_IDS",
                             &run_ids
                                 .iter()
                                 .map(|x| x.to_string())

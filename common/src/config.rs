@@ -30,6 +30,7 @@ pub struct SetupArgs {
     pub master_platform: Option<HashMap<String, String>>,
     pub worker_platform: Option<HashMap<String, String>>,
     pub platform_args: Option<HashMap<String, String>>,
+    pub graph_platform_args: Option<HashMap<String, serde_yaml::Value>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
