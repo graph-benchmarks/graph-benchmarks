@@ -1,0 +1,50 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: d
+  namespace: default
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      name: a
+    spec:
+      containers:
+      - name: graph-vis
+        image: 192.168.121.125:30000/system/graphs:latest
+        imagePullPolicy: Always 
+        volumeMounts:
+        - name: visualize-storage
+          mountPath: /attached
+        env:
+        - name: POSTGRES_HOST
+          value: postgres
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          value: graph_benchmarks
+        - name: POSTGRES_DB
+          value: postgres
+        - name: OUTPUT_DIR
+          value: /attached/another-test
+        - name: GENERATE_GRAPHS
+          value: lines
+        - name: SELECT_LOG_IDS
+          value: "8"
+      initContainers:
+      - name: create-folder
+        image: busybox
+        command: ['sh', '-c', 'mkdir -p /attached/another-test']
+        volumeMounts:
+        - name: visualize-storage
+          mountPath: /attached
+      volumes:
+      - name: visualize-storage
+        nfs:
+          path: /visualize-storage
+          server: "10.43.115.207"
+          readOnly: false
+      restartPolicy: OnFailure
+      dnsPolicy: ClusterFirst
