@@ -1,10 +1,10 @@
 package k8s
 
 import (
-	"fmt"
 	"graph-benchmarks/metrics-server/config"
 	"graph-benchmarks/metrics-server/db"
 	"log"
+	"log/slog"
 	"time"
 )
 
@@ -18,17 +18,17 @@ type MetricsPollingWorker struct {
 }
 
 func New(sqlCfg config.SqlConfig, k8sCfg config.K8sConfig, runId int64, interval int64, podNames []string) (MetricsPollingWorker, error) {
-	db, err := db.New(sqlCfg)
+	database, err := db.New(sqlCfg)
 	if err != nil {
-		panic(err)
+		log.Panicf("Unable to initalize connection to database: %v", err)
 	}
 	k8sClient, err := NewClients()
 	if err != nil {
-		panic(err)
+		log.Panicf("Unable to initalize K8s clients: %v", err)
 	}
 
 	return MetricsPollingWorker{
-		db:        db,
+		db:        database,
 		runId:     runId,
 		k8sClient: k8sClient,
 		interval:  interval,
@@ -48,8 +48,7 @@ func (w *MetricsPollingWorker) Start() {
 				for _, name := range w.podNames {
 					metrics, err := w.k8sClient.GetMetrics(name)
 					if err != nil {
-						fmt.Printf("Failed to get metrics from pod: %s\n", name)
-						log.Println(err)
+						slog.Error("Failed to get metrics from pod: %s\n", name)
 						return
 					}
 					cpuUsage := metrics.Containers[0].Usage.Cpu().AsApproximateFloat64()
@@ -70,7 +69,7 @@ func (w *MetricsPollingWorker) Start() {
 
 					err = w.db.NewRecord(&pm)
 					if err != nil {
-						fmt.Printf("Unable to write to db: %v\n", err)
+						slog.Error("Unable to write to database: %v\n", err)
 						return
 					}
 
@@ -85,5 +84,5 @@ func (w *MetricsPollingWorker) Start() {
 
 func (w *MetricsPollingWorker) Stop() {
 	close(w.signal)
-	fmt.Printf("Metrics collection worker is shutting down.")
+	log.Print("Metrics collection worker is shutting down.\n")
 }

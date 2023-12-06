@@ -4,9 +4,23 @@ use anyhow::Result;
 use common::driver_config::DriverConfig;
 use k8s_openapi::api::core::v1::{Pod, Service};
 use kube::{api::ListParams, Api, Client};
+use serde_yaml::Mapping;
 use tokio::fs;
 
 pub struct Graphscope;
+
+fn set_third_key<'a>(
+    from: &'a mut serde_yaml::Value,
+    second_key: &str,
+    third_key: &str,
+) -> &'a mut serde_yaml::Value {
+    from.get_mut("resources")
+        .unwrap()
+        .get_mut(second_key)
+        .unwrap()
+        .get_mut(third_key)
+        .unwrap()
+}
 
 #[async_trait::async_trait]
 impl DriverConfig for Graphscope {
@@ -24,24 +38,44 @@ impl DriverConfig for Graphscope {
         ))
     }
 
-    async fn set_node_config(&self, nodes: usize, cpu: usize, memory: usize) -> Result<()> {
+    async fn set_node_config(
+        &self,
+        nodes: usize,
+        options: Option<serde_yaml::Value>,
+    ) -> Result<()> {
         let values_file = format!("drivers/{}/values.yaml", self.name());
         let f = fs::read_to_string(&values_file).await?;
         let mut data: HashMap<&str, serde_yaml::Value> = serde_yaml::from_str(&f)?;
 
-        let mut e = serde_yaml::Mapping::new();
-        e.insert("gae.resources.requests.cpu".into(), cpu.into());
-        e.insert(
-            "gae.resources.requests.memory".into(),
-            format!("{}Gi", memory).into(),
-        );
-        e.insert("gie.resources.requests.cpu".into(), cpu.into());
-        e.insert(
-            "gie.resources.requests.memory".into(),
-            format!("{}Gi", memory).into(),
-        );
-        e.insert("num_workers".into(), nodes.into());
-        data.insert("engines", serde_yaml::Value::Mapping(e));
+        let options = match options {
+            Some(s) => s.as_mapping().unwrap().to_owned(),
+            None => Mapping::new(),
+        };
+
+        let engines = data.get_mut("engines").unwrap();
+        *engines.get_mut("num_workers").unwrap() = nodes.into();
+
+        if options.contains_key("cpu") {
+            *set_third_key(engines.get_mut("gae").unwrap(), "requests", "cpu") =
+                options.get("cpu").unwrap().clone();
+            *set_third_key(engines.get_mut("gae").unwrap(), "limits", "cpu") =
+                options.get("cpu").unwrap().clone();
+            *set_third_key(engines.get_mut("gie").unwrap(), "requests", "cpu") =
+                options.get("cpu").unwrap().clone();
+            *set_third_key(engines.get_mut("gie").unwrap(), "limits", "cpu") =
+                options.get("cpu").unwrap().clone();
+        }
+
+        if options.contains_key("memory") {
+            *set_third_key(engines.get_mut("gae").unwrap(), "requests", "memory") =
+                options.get("memory").unwrap().clone();
+            *set_third_key(engines.get_mut("gae").unwrap(), "limits", "memory") =
+                options.get("memory").unwrap().clone();
+            *set_third_key(engines.get_mut("gie").unwrap(), "requests", "memory") =
+                options.get("memory").unwrap().clone();
+            *set_third_key(engines.get_mut("gie").unwrap(), "limits", "memory") =
+                options.get("memory").unwrap().clone();
+        }
 
         fs::write(values_file, serde_yaml::to_string(&data)?).await?;
         Ok(())

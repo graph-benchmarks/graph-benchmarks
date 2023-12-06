@@ -20,6 +20,10 @@ cpu = "8"
 memory = "8192"
 #
 
+[setup.graph_platform_args.graphscope]
+cpu = 4
+memory = "2Gi"
+
 [benchmark]
 datasets = ["a", "b", "c"]
 drivers = ["graphscope"]

@@ -85,6 +85,14 @@ eg:
 │   ├── facebook.e
 ```
 
+## Graph platform arguments
+Arguments to specific graph platforms can be provided in the config file and are driver specific.
+```toml
+[setup.graph_platform_args.graphscope]
+cpu = 4
+memory = "2Gi"
+```
+
 ## Inbuilt providers
 
 ### Vagrant

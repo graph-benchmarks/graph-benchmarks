@@ -1,7 +1,7 @@
 package config
 
 import (
-	"fmt"
+	"log"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -10,12 +10,12 @@ import (
 func FromFile(path string) (GlobalConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		panic(err)
+		return GlobalConfig{}, err
 	}
 	cfg := &GlobalConfig{}
 	err = yaml.Unmarshal(data, cfg)
 	if err != nil {
-		fmt.Printf("Unmarshal: %v\n", err)
+		log.Fatalf("Unmarshal: %v\n", err)
 	}
 
 	return *cfg, nil

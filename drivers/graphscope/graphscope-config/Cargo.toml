@@ -14,3 +14,4 @@ kube = { version = "0.87", features = ["runtime", "derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["fs"] }
+tracing = "0.1"

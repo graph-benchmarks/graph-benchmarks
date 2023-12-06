@@ -1,7 +1,29 @@
 engines:
-  gae.resources.requests.cpu: 0
-  gae.resources.requests.memory: 0Gi
-  gie.resources.requests.cpu: 0
-  gie.resources.requests.memory: 0Gi
-  num_workers: 0
+  gae:
+    resources:
+      requests:
+        cpu: 1
+        memory: 1Gi
+      limits:
+        cpu: 1
+        memory: 1Gi
+  gie:
+    resources:
+      requests:
+        cpu: 1
+        memory: 1Gi
+      limits:
+        cpu: 1
+        memory: 1Gi
+  num_workers: 1
+
+coordinator:
+  resources:
+    requests:
+      cpu: 1
+      memory: 1Gi
+    limits:
+      cpu: 1
+      memory: 1Gi
+
 withJupyter: false

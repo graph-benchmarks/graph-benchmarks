@@ -40,7 +40,7 @@ def main():
         print("connected to db...")
 
         # Query the data from the database.
-        query = "SELECT * FROM gn_test"
+        query = "SELECT * FROM gn_test WHERE ID IN(" + select_log_ids + ") AND type='runtime'"
         cursor.execute(query)
         
         # Fetch the results and iterate over them. Group first per logged algorithm

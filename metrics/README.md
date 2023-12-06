@@ -2,6 +2,12 @@
 
 This is the component which collects all performance metrics from k8s clusters.
 
+Implemented metrics:
+
+- [x] CPU usage (unit: K8s standard CPU Core)
+- [x] Memory usage (unit: Ki)
+- [ ] Power usage
+
 ## Building & Running
 
 ### Building
@@ -18,13 +24,17 @@ This is the component which collects all performance metrics from k8s clusters.
 
 ### Configuring
 
-You can configure the metrics server by editing `config.yaml` and populate the required fields. 
+You can configure the metrics server by copying the sample configuration file and populating the required fields.
+
+```shell
+cp example.config.yaml config.yaml
+```
 
 ### Running
 
 1. If you have previously configured with `config.yaml`, you can simply run with:
    ```shell
-   ./metrics-server -config path/to/config.yaml
+   ./metrics-server -config <path/to/config.yaml>
    ```
 
 2. You can also pass commandline arguments by:
@@ -44,6 +54,20 @@ You can configure the metrics server by editing `config.yaml` and populate the r
 
 ### SQL Table Schema
 
-```
-id (INT) | run_id (INT) | start_time (INT) | time_delta (INT) | pod_name char(256) | cpu_usage (FLOAT) | ram_usage (FLOAT) | power_usage (FLOAT) | interval (INT) 
+> [!IMPORTANT]
+> The following SQL command is not tested and should be used for reference only.
+
+```sql
+CREATE TABLE `performance_metrics` (
+    `id`         BIGINT NOT NULL AUTO_INCREMENT,
+    `run_id`     BIGINT,
+    `start_time` BIGINT,
+    `time_delta` BIGINT,
+    `pod_name`   VARCHAR(255),
+    `cpu_usage` DOUBLE,
+    `ram_usage` DOUBLE,
+    `power_usage` DOUBLE,
+    `interval`   BIGINT,
+    KEY          `id` (`id`) USING BTREE
+);
 ```
