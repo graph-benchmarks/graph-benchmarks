@@ -1,4 +1,3 @@
-import pandas as pd
 import sys
 import graphscope as gs
 import psycopg
@@ -7,7 +6,6 @@ import yaml
 import time
 import requests
 from graphscope.framework.graph import Graph, GraphDAGNode
-from graphscope.nx.classes.function import number_of_edges, number_of_nodes
 
 # check if table exists on postgres
 def check_table(conn: psycopg.Connection)->None:
@@ -22,11 +20,14 @@ def check_table(conn: psycopg.Connection)->None:
     conn.commit()       
     cur.close()
 
-def graph_vertex_count(g: Graph | GraphDAGNode)->int:
-    return number_of_nodes(g) 
+# gremlin queries for number of vertexes and edges
+def graph_vertex_edge_count(sess:gs.Session, g:Graph | GraphDAGNode):
+    itr = sess.gremlin(g)
+    gt = itr.traversal_source()
+    tot_vertex = gt.V().count().toList()[0]
+    tot_edges = gt.E().count().toList()[0]
+    return tot_vertex, tot_edges
 
-def graph_edge_count(g:Graph | GraphDAGNode)->int:
-    return number_of_edges(g)
 
 def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str, type_:str, time:float, vertex:int, edge:int, nodes:int)->None:
     columns = ["id", "algo", "dataset", "type", "time", "vertex", "edge", "nodes"]
@@ -49,18 +50,19 @@ def load_data(config, sess:gs.Session, vertex_file:str, edge_file:str):
     g = sess.g(directed=config["dataset"]["directed"])
 
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    df_v = pd.read_csv(vertex_file, header=None, names=["vertex"])
+    #df_v = pd.read_csv(vertex_file, header=None, names=["vertex"])
     
-    if config["dataset"]["weights"]:
-        df_e = pd.read_csv(edge_file, header=None, names=["src","dst"], sep=" ")
-    else:
-        df_e = pd.read_csv(edge_file, header=None, names=["src", "dst", "weights"], sep=" ")
+    #if config["dataset"]["weights"]:
+    #    df_e = pd.read_csv(edge_file, header=None, names=["src","dst"], sep=" ")
+    #else:
+    #    df_e = pd.read_csv(edge_file, header=None, names=["src", "dst", "weights"], sep=" ")
 
-    g = g.add_vertices(df_v).add_edges(df_e)
+    g = g.add_vertices(vertex_file, vid_field="vertex").add_edges(edge_file, src_field="src", dst_field="dst")
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-
     duration = end_time - start_time
-    return duration, g, len(df_v), len(df_e)
+
+    [tot_vertex, tot_edges] = graph_vertex_edge_count(sess, g)
+    return duration, g, tot_vertex, tot_edges
     
 
 def bfs(config, g: Graph | GraphDAGNode)->int:
