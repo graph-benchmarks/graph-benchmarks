@@ -40,16 +40,22 @@ def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str,
     conn.commit()
     cur.close()
 
-def load_data(g: Graph | GraphDAGNode, vertex_file:str, edge_file:str):
+def load_data(config, sess:gs.Session, vertex_file:str, edge_file:str):
     """
     Returns loading time, loaded graph, vertex number, edge_number
     """
     #v = loader.Loader(f"file://{vertex_file}", header_row=False)
     #e = loader.Loader(f"file://{edge_file}", header_row=False)
+    g = sess.g(directed=config["dataset"]["directed"])
 
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     df_v = pd.read_csv(vertex_file, header=None, names=["vertex"])
-    df_e = pd.read_csv(edge_file, header=None, names=["src","dst"])
+    
+    if config["dataset"]["weights"]:
+        df_e = pd.read_csv(edge_file, header=None, names=["src","dst"], sep=" ")
+    else:
+        df_e = pd.read_csv(edge_file, header=None, names=["src", "dst", "weights"], sep=" ")
+
     g = g.add_vertices(df_v).add_edges(df_e)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
 
@@ -57,28 +63,52 @@ def load_data(g: Graph | GraphDAGNode, vertex_file:str, edge_file:str):
     return duration, g, len(df_v), len(df_e)
     
 
-def bfs(g):
+def bfs(config, g: Graph | GraphDAGNode)->int:
+    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     gs.bfs(g)
+    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    return end_time - start_time
  
-def pr(g):
+def pr(config, g: Graph | GraphDAGNode )->int:
     # figure out what max round is?
+    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     gs.pagerank(g)
+    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    return end_time - start_time 
 
 # weakly connected components
-def wcc(g):
-    gs.wcc(g)
+def wcc(config, g: Graph | GraphDAGNode)->int:
+    start_time = 0
+    end_time = 0
+    if not config["dataset"]["directed"]:
+        start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+        gs.wcc(g)
+        end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    return end_time - start_time
 
 # community detection using label propagation
-def cdlp(g):
+def cdlp(config,g: Graph | GraphDAGNode)->int:
+    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     gs.lpa(g)
+    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    return end_time - start_time
 
 # local cluster coefficient
-def lcc(g):
+def lcc(config, g: Graph | GraphDAGNode)->int:
+    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     gs.avg_clustering(g)
+    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    return end_time - start_time
 
 # single source shortest paths
-def sssp(g):
-    gs.sssp(g)
+def sssp(config, g: Graph | GraphDAGNode)->int:
+    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)    
+    if config["dataset"]["weights"]:
+        gs.sssp(g, weight="weights")
+    else:
+        gs.sssp(g)
+    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    return end_time - start_time
 
 def main():
     # functional arguments position for the program
@@ -87,28 +117,28 @@ def main():
     config_yml = sys.argv[1]
 
     with open(config_yml, 'r') as yml_file:
-        configs = yaml.safe_load(yml_file)
+        config = yaml.safe_load(yml_file)
 
     #sql params
-    id_ = int(configs["config"]["id"])
-    algo = configs["config"]["algo"]
-    nodes = configs["config"]["nodes"]
+    id_ = int(config["config"]["id"])
+    algo = config["config"]["algo"]
+    nodes = config["config"]["nodes"]
 
-    log_file = configs["config"]["log_file"]
+    log_file = config["config"]["log_file"]
     lf = open(log_file, "w+")
 
-    gs_host = configs["platform"]["host"]
-    gs_port = configs["platform"]["port"]
+    gs_host = config["platform"]["host"]
+    gs_port = config["platform"]["port"]
 
-    pg_host = configs["postgres"]["host"]
-    pg_db = configs["postgres"]["db"]
-    pg_port = configs["postgres"]["port"]
-    user_ps = configs["postgres"]["ps"]
-    pg_user = configs["postgres"]["user"]
+    pg_host = config["postgres"]["host"]
+    pg_db = config["postgres"]["db"]
+    pg_port = config["postgres"]["port"]
+    user_ps = config["postgres"]["ps"]
+    pg_user = config["postgres"]["user"]
 
-    dataset = configs["dataset"]["name"]
-    vertex_file = configs["dataset"]["vertex"]
-    edge_file = configs["dataset"]["edges"] 
+    dataset = config["dataset"]["name"]
+    vertex_file = config["dataset"]["vertex"]
+    edge_file = config["dataset"]["edges"] 
     
     try:
         conn = psycopg.connect(f"postgresql://{pg_user}:{user_ps}@{pg_host}:{pg_port}/{pg_db}")
@@ -125,10 +155,8 @@ def main():
         conn.close()    
         quit(1)
     
-    g = sess.g()
-    
     check_table(conn)
-    [duration, g, vertex, edge] = load_data(g, vertex_file, edge_file)
+    [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
     
     #vertex = graph_vertex_count(g)
     #edge = graph_edge_count(g)
@@ -138,13 +166,11 @@ def main():
     func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
 
     requests.post('http://notifier:8080/starting')
-    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    func_d[algo](g)
-    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    dur = func_d[algo](config, g) 
     requests.post('http://notifier:8080/stopping')
 
-    duration = end_time - start_time
-    log_metrics_sql(conn, id_, algo, dataset, "runtime", duration, vertex, edge, nodes)
+    if dur > 0:
+        log_metrics_sql(conn, id_, algo, dataset, "runtime", dur, vertex, edge, nodes)
 
     lf.close()
     sess.close()
