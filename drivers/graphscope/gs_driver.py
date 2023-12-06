@@ -49,14 +49,13 @@ def load_data(config, sess:gs.Session, vertex_file:str, edge_file:str):
     #e = loader.Loader(f"file://{edge_file}", header_row=False)
     g = sess.g(directed=config["dataset"]["directed"])
 
-    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    df_v = pd.read_csv(vertex_file, header=None, names=["vertex"])
-    
+    df_v = pd.read_csv(vertex_file, header=None, names=["vertex"])    
     if not config["dataset"]["weights"]:
         df_e = pd.read_csv(edge_file, header=None, names=["src","dst"], sep=" ")
     else:
         df_e = pd.read_csv(edge_file, header=None, names=["src", "dst", "weights"], sep=" ")
 
+    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     g = g.add_vertices(df_v).add_edges(df_e)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     duration = end_time - start_time
