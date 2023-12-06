@@ -7,6 +7,10 @@ use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, Env
 
 mod args;
 mod commands;
+mod metrics_utils;
+mod model;
+mod rpc;
+mod schema;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,6 +29,8 @@ async fn main() -> Result<()> {
         Commands::Benchmark(_) => commands::benchmark::run_benchmark(&args).await,
         Commands::Destroy => commands::destroy::destroy(&args).await,
         Commands::Ls => commands::ls::list(&args).await,
+        Commands::Dashboard => commands::port_forwards::dashboard(&args).await,
+        Commands::Postgres => commands::port_forwards::postgres(&args).await,
     }?;
 
     Ok(())

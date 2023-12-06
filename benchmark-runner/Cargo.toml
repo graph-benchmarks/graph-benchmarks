@@ -10,13 +10,25 @@ anyhow = "1.0.75"
 clap = { version = "4.4.8", features = ["derive"] }
 futures-util = "0.3.29"
 k8s-openapi = { version = "0.20", features = ["latest"] }
-kube = { version = "0.87", features = ["runtime", "derive"] }
+kube = { version = "0.87", features = ["runtime", "derive", "ws"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8.8"
-tracing = "0.1.40"
+tracing = "0.1"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 common = { path = "../common" }
 base-driver = { path = "../drivers/base-driver" }
 base-provider = { path = "../providers/base-provider" }
+futures = "0.3.29"
+tokio-stream = { version = "0.1.14", features = ["net"] }
+tonic = "0.10.2"
+prost = "0.12.3"
+diesel = "2.1.4"
+diesel-async = { version = "0.4.1", features = ["postgres", "async-connection-wrapper"] }
+diesel_migrations = { version = "2.1.0", features = ["postgres"] }
+tokio-tungstenite = "0.20.1"
+serde_json = "1.0.108"
+
+[build-dependencies]
+tonic-build = "0.10.2"

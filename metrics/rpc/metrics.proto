@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package rpc;
+
+option go_package = "./rpc";
+
+message Start {
+  int64 run_id = 1;
+  repeated string pod_ids = 2;
+  float interval = 3;
+}
+
+message Stop {
+  int64 run_id = 1;
+  repeated string pod_ids = 2;
+}
+
+message Ack {
+  bool status = 1;
+  string message = 2;
+}
+
+message MetricsQuery {
+  int64 run_id = 1;
+  int64 target_timestamp = 2;
+  string pod_name = 3;
+}
+
+message MetricsResponse {
+  int64 run_id = 1;
+  int64 start_time = 2;
+  int64 time_delta = 3;
+  string pod_name = 4;
+  float cpu_usage = 5;
+  float ram_usage = 6;
+  float power_usage = 7;
+  float interval = 8;
+}
+
+service MetricsCollector {
+  rpc StartRecording(Start) returns (Ack);
+  rpc StopRecording(Stop) returns (Ack);
+}
+
+service PerformanceMetricsQueryService {
+  rpc Query(MetricsQuery) returns (MetricsResponse);
+}

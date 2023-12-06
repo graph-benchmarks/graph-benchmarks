@@ -1,0 +1,10 @@
+- name: Graphscope helm destroy
+  hosts: master
+  tasks:
+    - name: Remove graphscope
+      kubernetes.core.helm:
+        name: graphscope
+        namespace: default
+        chart_ref: graphscope/graphscope
+        state: absent
+        wait: true

@@ -28,6 +28,18 @@
             update_cache: true
             state: latest
 
+        - name: Install rsync
+          become: true
+          ansible.builtin.apt:
+            name: rsync
+            state: latest
+
+        - name: Install nfs-common
+          become: true
+          ansible.builtin.apt:
+            name: nfs-common
+            state: latest
+
         - name: Install pre-requisites
           ansible.builtin.pip:
             name:
@@ -75,21 +87,61 @@
         namespace: default
         src: internal-registry.yaml
 
-    - name: Custom registry config
+    - name: Copy admin user service account setup
+      ansible.builtin.copy:
+        src: data/admin-user.yaml
+        dest: $HOME/admin-user.yaml
+        mode: 'g+w'
+
+    - name: Create admin user 
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        src: admin-user.yaml
+
+    - name: Copy nfs yaml
+      ansible.builtin.copy:
+        src: data/nfs.yaml
+        dest: nfs.yaml
+        mode: 'g+w'
+
+    - name: Create nfs server
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        namespace: default
+        src: nfs.yaml
+
+    - name: Set nfs dir permissions
       become: true
-      when: "'data/k3s_registry.yaml' is file"
-      block:
-        - name: Copy k3s_registry.yaml 
-          ansible.builtin.copy:
-            src: data/k3s_registry.yaml
-            dest: /etc/rancher/k3s/registries.yaml
-            mode: 'g+w'
+      ansible.builtin.shell: chmod 777 /cluster-data && mkdir -p /cluster-data/visualize-storage
 
-        - name: Restart k3s
-          become: true
-          ansible.builtin.systemd:
-            state: restarted
-            name: k3s
+    - name: Install docker
+      become: true
+      ansible.builtin.shell: curl -fsSL https://get.docker.com/ | sh
 
-        - name: Wait for all k3s nodes to be ready
-          ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s
+    - name: Append insecure registry
+      become: true
+      ansible.builtin.shell: rm -f /etc/docker/daemon.json && echo "{ \"insecure-registries\":[\"http://{{ ansible_ssh_host }}:30000\"] }" >> /etc/docker/daemon.json
+
+    - name: Restart docker
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: docker
+
+    - name: Copy k3s_registry.yaml
+      become: true
+      ansible.builtin.copy:
+        src: data/k3s_registry.yaml
+        dest: /etc/rancher/k3s/registries.yaml
+        mode: 'g+w'
+
+    - name: Restart k3s
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: k3s
+
+    - name: Wait for all k3s nodes to be ready
+      ansible.builtin.shell: kubectl wait --for=condition=Ready nodes --all --timeout=600s

@@ -1,0 +1,10 @@
+- name: Download generated graphs
+  hosts: master
+  tasks:
+    - name: Download generated graphs
+      ansible.builtin.synchronize:
+        src: /cluster-data/visualize-storage/
+        dest: ../generated-graphs
+        recursive: true
+        delete: true
+        mode: pull
