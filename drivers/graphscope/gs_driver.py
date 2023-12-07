@@ -1,3 +1,4 @@
+from io import TextIOWrapper
 import sys
 import requests
 import graphscope as gs
@@ -5,8 +6,10 @@ import psycopg
 import psycopg.sql as sql
 import yaml
 import time
-import pandas as pd
+from graphscope.framework import loader
 from graphscope.framework.graph import Graph, GraphDAGNode
+from kubernetes import client, config as KubeConfig
+import shutil
 
 # check if table exists on postgres
 def check_table(conn: psycopg.Connection)->None:
@@ -42,22 +45,83 @@ def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str,
     conn.commit()
     cur.close()
 
-def load_data(config, sess:gs.Session, vertex_file:str, edge_file:str):
+def graph_vertex_edge_count(sess:gs.Session, g:Graph | GraphDAGNode):
+    itr = sess.interactive(g)
+    gt = itr.traversal_source()
+    tot_vertex = gt.V().count().toList()[0]
+    tot_edges = gt.E().count().toList()[0]
+    return tot_vertex, tot_edges
+
+JOB_NAME="bench-graphscope-hdfs-loader"
+def wait_for_job_completion(api_instance):
+    job_completed = False
+    while not job_completed:
+        api_response = api_instance.read_namespaced_job_status(
+            name=JOB_NAME,
+            namespace="default")
+        if api_response.status.succeeded is not None or \
+                api_response.status.failed is not None:
+            job_completed = True
+
+def load_data(configs, sess:gs.Session, vertex_file:str, edge_file:str):
     """
     Returns loading time, loaded graph, vertex number, edge_number
     """
-    #v = loader.Loader(f"file://{vertex_file}", header_row=False)
-    #e = loader.Loader(f"file://{edge_file}", header_row=False)
-    g = sess.g(directed=config["dataset"]["directed"])
 
-    df_v = pd.read_csv(vertex_file, header=None, names=["vertex"])    
-    if not config["dataset"]["weights"]:
-        df_e = pd.read_csv(edge_file, header=None, names=["src","dst"], sep=" ")
-    else:
-        df_e = pd.read_csv(edge_file, header=None, names=["src", "dst", "weights"], sep=" ")
+    shutil.copyfile('upload-files.sh', '/scratch/upload-files.sh')
+    shutil.copyfile('core-site.xml', '/scratch/core-site.xml')
+
+    KubeConfig.load_incluster_config()
+
+    api = client.CoreV1Api()
+    service = api.read_namespaced_service(name="nfs-service", namespace="default")
+    nfs_ip = service.spec.cluster_ip
+
+    container = client.V1Container(
+        name=JOB_NAME,
+        image="apache/hadoop:2.10",
+        command=["bash", "/scratch/upload-files.sh", vertex_file, edge_file],
+        env=[client.V1EnvVar("HADOOP_USER_NAME", "root")],
+        volume_mounts=[
+            client.V1VolumeMount(mount_path="/scratch",name="scratch"),
+            client.V1VolumeMount(mount_path="/attached",name="bench-storage")
+        ]
+    )
+
+    volumes = [
+        client.V1Volume(name="scratch", nfs=client.V1NFSVolumeSource(path="/scratch", server=nfs_ip)),
+        client.V1Volume(name="bench-storage", nfs=client.V1NFSVolumeSource(path="/bench-storage", server=nfs_ip))
+    ]
+
+    template = client.V1PodTemplateSpec(
+        metadata=client.V1ObjectMeta(labels={"app": JOB_NAME}),
+        spec=client.V1PodSpec(restart_policy="Never", containers=[container], volumes=volumes))
+
+    spec = client.V1JobSpec(
+        template=template,
+        backoff_limit=0,
+        ttl_seconds_after_finished=0)
+
+    job = client.V1Job(
+        api_version="batch/v1",
+        kind="Job",
+        metadata=client.V1ObjectMeta(name="bench-graphscope-hdfs-loader"),
+        spec=spec)
+
+    lf.write("starting copy job")
+    api_response = client.BatchV1Api().create_namespaced_job(
+        body=job,
+        namespace="default")
+    wait_for_job_completion(client.BatchV1Api())
+    lf.write("done copying datasets to hdfs")
 
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    g = g.add_vertices(df_v).add_edges(df_e)
+    v = loader.Loader(f"hdfs://hadoop-hadoop-hdfs-nn:9000{vertex_file}", header_row=False, delimiter=" ")
+    e = loader.Loader(f"hdfs://hadoop-hadoop-hdfs-nn:9000{edge_file}", header_row=False, delimiter=" ")
+
+    g = sess.g(directed=configs["dataset"]["directed"])
+    g = g.add_vertices(v).add_edges(e)
+    lf.write("done loading to graphscope")
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     duration = end_time - start_time
 
@@ -112,6 +176,7 @@ def sssp(config, g: Graph | GraphDAGNode)->int:
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
+lf: TextIOWrapper
 def main():
     # functional arguments position for the program
     # config_file_path id1 id2 algorithm dataset log_file
@@ -122,8 +187,9 @@ def main():
         config = yaml.safe_load(yml_file)
 
     #sql params
-    id_ = int(config["config"]["id"])
-    algo = config["config"]["algo"]
+    ids = [int(x.strip()) for x in config["config"]["ids"].split(",")]
+    algos = [x.strip() for x in config["config"]["algos"].split(",")]
+    id_algos = list(zip(ids, algos))
     nodes = config["config"]["nodes"]
 
     log_file = config["config"]["log_file"]
@@ -159,20 +225,23 @@ def main():
     
     check_table(conn)
     [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
-    
-    #vertex = graph_vertex_count(g)
-    #edge = graph_edge_count(g)
 
-    log_metrics_sql(conn, id_, algo, dataset, "loading", duration, vertex, edge, nodes)
+    entry: (int, str)
+    for entry in id_algos:
+        log_metrics_sql(conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes)
 
     func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
 
-    requests.post('http://notifier:8080/starting')
-    dur = func_d[algo](config, g) 
-    requests.post('http://notifier:8080/stopping')
+    for entry in id_algos:
+        lf.write("starting " + entry[1] + " with id " + str(entry[0]))
+        requests.post('http://notifier:8080/starting')
+        dur = func_d[entry[1]](config, g) 
+        requests.post('http://notifier:8080/stopping')
 
-    if dur > 0:
-        log_metrics_sql(conn, id_, algo, dataset, "runtime", dur, vertex, edge, nodes)
+        if dur > 0:
+            log_metrics_sql(conn, entry[0], entry[1], dataset, "runtime", dur, vertex, edge, nodes)
+
+    del g
 
     lf.close()
     sess.close()

@@ -42,6 +42,7 @@ pub struct KubeSetup {
 pub struct Benchmark {
     pub drivers: Vec<String>,
     pub datasets: Vec<String>,
+    pub repeat: usize,
     pub algorithms: Option<Vec<String>>,
     pub debug: Option<DebugOptions>,
 }

@@ -31,8 +31,8 @@ pub struct DatasetConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunConfig {
-    pub id: i32,
-    pub algo: String,
+    pub ids: String,
+    pub algos: String,
     pub log_file: String,
     pub nodes: usize,
 }

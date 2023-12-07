@@ -112,9 +112,22 @@
         namespace: default
         src: nfs.yaml
 
+    - name: Copy common-pv yaml
+      ansible.builtin.copy:
+        src: data/common-pv.yaml
+        dest: common-pv.yaml
+        mode: 'g+w'
+
+    - name: Create common-pv server
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        namespace: default
+        src: common-pv.yaml
+
     - name: Set nfs dir permissions
       become: true
-      ansible.builtin.shell: chmod 777 /cluster-data && mkdir -p /cluster-data/visualize-storage
+      ansible.builtin.shell: chmod 777 /cluster-data && mkdir -p /cluster-data/visualize-storage && mkdir -p /cluster-data/bench-storage && mkdir -p /cluster-data/scratch
 
     - name: Install docker
       become: true

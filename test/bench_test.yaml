@@ -6,10 +6,10 @@ metadata:
 data:
   config.yaml: |
     config:
-      id: 12
-      algo: bfs
+      ids: "12"
+      algos: "bfs"
       log_file: /attached/log
-      nodes: 4
+      nodes: 2
     postgres:
       host: postgres
       port: 5432
@@ -17,12 +17,12 @@ data:
       user: postgres
       ps: graph_benchmarks
     platform:
-      host: coordinator-service-graphscope:{}
+      host: coordinator-service-graphscope
       port: 59001
     dataset:
-      vertex: /attached/test-wcc-undirected.v
-      edges: /attached/test-wcc-undirected.e
-      name: test-wcc-undirected
+      vertex: /attached/datagen-7_5-fb.v
+      edges: /attached/datagen-7_5-fb.e
+      name: datagen-7_5-fb
       weights: false
       directed: false
 ---
@@ -32,13 +32,16 @@ metadata:
   name: graphscope-bench
   namespace: default
 spec:
+  serviceAccount: admin-user
   containers:
     - name: graphscope-bench
       command: ["sh", "-c", "while { sleep 3600; } do :; done"]
-      image: 192.168.121.39:30000/benches/graphscope:latest
+      image: 192.168.121.181:30000/benches/graphscope:latest
       volumeMounts:
         - name: bench-storage
           mountPath: /attached
+        - name: scratch
+          mountPath: /scratch
         - name: graphscope-bench
           mountPath: /cfg
           readOnly: true
@@ -48,7 +51,12 @@ spec:
     - name: bench-storage
       nfs:
         path: /bench-storage
-        server: 10.43.9.185
+        server: 10.43.230.0
+        readOnly: false
+    - name: scratch
+      nfs:
+        path: /scratch
+        server: 10.43.230.0
         readOnly: false
     - name: graphscope-bench
       configMap:

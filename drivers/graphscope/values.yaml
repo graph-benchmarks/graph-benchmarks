@@ -23,16 +23,16 @@ vineyard:
   resources:
     requests:
       cpu: 2
-      memory: 12Gi
+      memory: 24Gi
     limits:
       cpu: 2
-      memory: 12Gi
+      memory: 24Gi
   shared_mem: 1024Gi
 coordinator:
   resources:
     requests:
       cpu: 2
-      memory: 3Gi
+      memory: 8Gi
     limits:
       cpu: 2
-      memory: 3Gi
+      memory: 8Gi

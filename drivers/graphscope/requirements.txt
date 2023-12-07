@@ -1,6 +1,7 @@
-graphscope==0.25.0
-graphscope-client==0.25.0
+graphscope==0.26.0a20231205
+graphscope-client==0.26.0a20231205
 psycopg==3.1.13
 psycopg-binary==3.1.13
-pandas==2.0.3
 requests==2.31.0
+async-timeout==4.0.3
+kubernetes==28.1.0

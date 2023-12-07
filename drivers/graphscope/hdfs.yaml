@@ -1,0 +1,9 @@
+persistence:
+  nameNode:
+    enabled: true
+    storageClass: manual
+    size: 1Gi
+  dataNode:
+    enabled: true
+    storageClass: manual
+    size: 40Gi

@@ -18,7 +18,7 @@ use diesel_async::{
     RunQueryDsl,
 };
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use futures_util::{future::join, StreamExt, TryStreamExt};
+use futures_util::{StreamExt, TryStreamExt};
 use k8s_openapi::api::{
     batch::v1::{Job, JobSpec},
     core::v1::{
@@ -151,32 +151,45 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 },
                 dataset: DatasetConfig::default(),
                 config: RunConfig {
-                    id: 0,
-                    algo: "".into(),
+                    ids: "".into(),
+                    algos: "".into(),
                     log_file: "/attached/log".into(),
                     nodes: n_nodes,
                 },
             };
 
             for dataset in &config.benchmark.datasets {
-                for algorithm in config.benchmark.algorithms.as_ref().unwrap_or(
-                    &ALGORITHMS
+                let algos = config.benchmark.algorithms.clone().unwrap_or(
+                    ALGORITHMS
                         .iter()
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>(),
-                ) {
-                    let pb = progress(&format!("Benchmarking ({algorithm} on {dataset})"));
-                    let run_id = get_run_id(&mut connection, n_nodes).await?;
-                    runs.push(Run {
-                        run_id,
-                        dataset: dataset.clone(),
-                        algorithm: algorithm.clone(),
-                        nodes: n_nodes,
-                    });
+                );
+
+                let pb = progress(&format!(
+                    "Benchmarking {} times (on {dataset})",
+                    config.benchmark.repeat
+                ));
+                let start = Instant::now();
+
+                for _ in 0..config.benchmark.repeat {
+                    let run_ids = get_run_ids(&mut connection, n_nodes, algos.len()).await?;
+                    run_ids
+                        .iter()
+                        .zip(algos.clone())
+                        .for_each(|(run_id, algo)| {
+                            runs.push(Run {
+                                run_id: *run_id,
+                                dataset: dataset.clone(),
+                                algorithm: algo.clone(),
+                                nodes: n_nodes,
+                            });
+                        });
 
                     let d: DatasetUserConfig = toml::from_str(
                         &fs::read_to_string(format!("datasets/{dataset}/config.toml")).await?,
                     )?;
+
                     cfg.dataset = DatasetConfig {
                         name: dataset.clone(),
                         vertex: format!("/attached/{dataset}.v"),
@@ -184,11 +197,14 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         weights: d.weights,
                         directed: d.directed,
                     };
-                    cfg.config.algo = algorithm.clone();
-                    cfg.config.id = run_id;
+                    cfg.config.algos = algos.join(",");
+                    cfg.config.ids = run_ids
+                        .iter()
+                        .map(|x| x.to_string())
+                        .collect::<Vec<String>>()
+                        .join(",");
                     info!("{cfg:#?}");
 
-                    let start = Instant::now();
                     start_bench(
                         &driver,
                         &connect_args.master_ip,
@@ -212,24 +228,27 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     }
 
                     let metrics_ip = format!("http://{}:30001", connect_args.master_ip);
-                    start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
-                    info!("started recording metrics on {metrics_ip}");
+                    for run_id in run_ids {
+                        start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
+                        info!("started recording metrics on {metrics_ip}");
+                        ws_stream = wait_for_ws_end_message(
+                            ws_stream,
+                            metrics_ip.clone(),
+                            pod_ids.clone(),
+                            run_id,
+                        )
+                        .await?;
+                    }
 
-                    let (delete_status, stop_recording_status) = join(
-                        wait_for_bench_delete(),
-                        wait_for_ws_end_message(ws_stream, metrics_ip, pod_ids.clone(), run_id),
-                    )
-                    .await;
-                    delete_status?;
-                    ws_stream = stop_recording_status?;
-
-                    finish_progress(
-                        "Done benchmarking",
-                        &format!("{algorithm} on {dataset}"),
-                        start.elapsed(),
-                        Some(pb),
-                    );
+                    wait_for_bench_delete().await?;
                 }
+
+                finish_progress(
+                    &format!("Done benchmarking {} times", config.benchmark.repeat),
+                    &format!("on {dataset}"),
+                    start.elapsed(),
+                    Some(pb),
+                );
             }
             visualize_dataset_algos(
                 &runs[runs_start_point..],
@@ -502,6 +521,7 @@ async fn start_bench(
                 ..Default::default()
             }),
             spec: Some(PodSpec {
+                service_account_name: Some("admin-user".into()),
                 restart_policy: Some("Never".into()),
                 containers: vec![Container {
                     args: Some(vec!["/cfg/config.yaml".into()]),
@@ -512,6 +532,11 @@ async fn start_bench(
                         VolumeMount {
                             mount_path: "/attached".into(),
                             name: "bench-storage".into(),
+                            ..VolumeMount::default()
+                        },
+                        VolumeMount {
+                            mount_path: "/scratch".into(),
+                            name: "scratch".into(),
                             ..VolumeMount::default()
                         },
                         VolumeMount {
@@ -528,6 +553,15 @@ async fn start_bench(
                         name: "bench-storage".into(),
                         nfs: Some(NFSVolumeSource {
                             path: "/bench-storage".to_owned(),
+                            server: nfs_ip.clone(),
+                            read_only: Some(false),
+                        }),
+                        ..Volume::default()
+                    },
+                    Volume {
+                        name: "scratch".into(),
+                        nfs: Some(NFSVolumeSource {
+                            path: "/scratch".to_owned(),
                             server: nfs_ip,
                             read_only: Some(false),
                         }),
@@ -567,12 +601,21 @@ fn setup_db(master_ip: IpAddr) -> Result<()> {
     Ok(())
 }
 
-async fn get_run_id(conn: &mut AsyncPgConnection, n_nodes: usize) -> Result<i32> {
+async fn get_run_ids(
+    conn: &mut AsyncPgConnection,
+    n_nodes: usize,
+    count: usize,
+) -> Result<Vec<i32>> {
     use crate::schema::benchmarks::{self, dsl::*};
-    let b: Benchmark = diesel::insert_into(benchmarks::table)
-        .values(nodes.eq(n_nodes as i32))
+    let b = diesel::insert_into(benchmarks::table)
+        .values(
+            (0..count)
+                .into_iter()
+                .map(|_| nodes.eq(n_nodes as i32))
+                .collect::<Vec<_>>(),
+        )
         .returning(Benchmark::as_returning())
-        .get_result(conn)
+        .get_results(conn)
         .await?;
-    Ok(b.id)
+    Ok(b.into_iter().map(|x| x.id).collect())
 }

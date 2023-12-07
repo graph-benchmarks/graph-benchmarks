@@ -174,7 +174,7 @@ pub async fn start_metrics(host_ip: &str) -> Result<()> {
             image: Some(format!("{host_ip}:30000/system/metrics:latest")),
             ..Container::default()
         }],
-        service_account: Some("admin-user".into()),
+        service_account_name: Some("admin-user".into()),
         ..PodSpec::default()
     });
     pods.create(&PostParams::default(), &pod_spec).await?;

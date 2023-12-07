@@ -1,16 +1,35 @@
 - name: Graphscope helm setup
   hosts: master
   tasks:
-    - name: Add helm repo
+    - name: Add graphscope helm repo
       kubernetes.core.helm_repository:
         name: graphscope
         repo_url: https://graphscope.oss-cn-beijing.aliyuncs.com/charts/
 
-    - name: Copy chart values
+    - name: Add hdfs helm repo
+      kubernetes.core.helm_repository:
+        name: apache-hadoop-helm
+        repo_url: https://pfisterer.github.io/apache-hadoop-helm/
+
+    - name: Copy graphscope chart values
       ansible.builtin.copy:
         src: values.yaml
-        dest: $HOME/values.yaml
+        dest: $HOME/gs.yaml
         mode: 'g+w'
+
+    - name: Copy hdfs chart values
+      ansible.builtin.copy:
+        src: hdfs.yaml
+        dest: $HOME/hdfs.yaml
+        mode: 'g+w'
+
+    - name: Install hdfs
+      kubernetes.core.helm:
+        name: hdfs
+        release_namespace: default
+        chart_ref: apache-hadoop-helm/hadoop
+        values_files:
+          - hdfs.yaml
 
     - name: Install graphscope
       kubernetes.core.helm:
@@ -18,4 +37,4 @@
         release_namespace: default
         chart_ref: graphscope/graphscope
         values_files:
-          - values.yaml
+          - gs.yaml
