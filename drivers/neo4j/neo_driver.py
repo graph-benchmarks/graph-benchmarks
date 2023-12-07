@@ -206,8 +206,9 @@ def main():
         config = yaml.safe_load(yml_file)
 
     #sql params
-    id_ = int(config["config"]["id"])
-    algo = config["config"]["algo"]
+    ids = [int(x.strip()) for x in config["config"]["ids"].split(",")]
+    algos = [x.strip() for x in config["config"]["ids"].split(",")]
+    id_algos = list(zip(ids, algos)) 
     nodes = config["confing"]["nodes"]
 
     log_file = config["config"]["log_file"]
@@ -247,17 +248,22 @@ def main():
     
     #vertex = graph_vertex_count(g)
     #edge = graph_edge_count(g)
-
-    log_metrics_sql(conn, id_, algo, dataset, "loading", duration, vertex, edge, nodes)
-
-    requests.post('http://notifier:8080/starting')
+    
+    for entry in id_algos:
+        log_metrics_sql(conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes)
+    
     func_d = {'bfs': bfs, 'pr':pr, 'wcc':wcc, 'cdlp':cdlp, 'lcc':lcc, 'sssp':sssp}
-    requests.post('http://notifier:8080/stopping')
-
-    dur = func_d[algo](config, gds, G) 
-
-    if dur > 0:
-        log_metrics_sql(conn, id_, algo, dataset, "runtime", dur, vertex, edge, nodes)
+    
+    for entry in id_algos:
+        id_ = entry[0]
+        algo = entry[1]
+        
+        requests.post('http://notifier:8080/starting')
+        dur = func_d[algo](config, gds, G)
+        requests.post('http://notifier:8080/stopping')
+        
+        if dur > 0:
+            log_metrics_sql(conn, id_, algo, dataset, "runtime", dur, vertex, edge, nodes)
 
     lf.close()
     gds.close()
