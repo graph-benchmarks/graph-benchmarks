@@ -25,15 +25,6 @@ def check_table(conn: psycopg.Connection)->None:
     conn.commit()       
     cur.close()
 
-# gremlin queries for number of vertexes and edges
-def graph_vertex_edge_count(sess:gs.Session, g:Graph | GraphDAGNode):
-    itr = sess.gremlin(g)
-    gt = itr.traversal_source()
-    tot_vertex = gt.V().count().toList()[0]
-    tot_edges = gt.E().count().toList()[0]
-    return tot_vertex, tot_edges
-
-
 def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str, type_:str, time:float, vertex:int, edge:int, nodes: int)->None:
     columns = ["id", "algo", "dataset", "type", "time", "vertex", "edge", "nodes"]
     cur = conn.cursor()
@@ -157,14 +148,14 @@ def wcc(config, g: Graph | GraphDAGNode)->int:
 # community detection using label propagation
 def cdlp(config,g: Graph | GraphDAGNode)->int:
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    gs.lpa(g)
+    gs.cdlp(g)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
 # local cluster coefficient
 def lcc(config, g: Graph | GraphDAGNode)->int:
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    gs.avg_clustering(g)
+    gs.lcc(g)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
@@ -228,7 +219,6 @@ def main():
     check_table(conn)
     [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
 
-    entry: (int, str)
     for entry in id_algos:
         log_metrics_sql(conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes)
 
