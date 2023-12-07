@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Run {
@@ -14,13 +14,19 @@ pub struct PlatformConfig {
     pub port: u16,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatasetUserConfig {
+    pub weights: bool,
+    pub directed: bool,
+}
+
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct DatasetConfig {
     pub vertex: String,
     pub edges: String,
     pub name: String,
     pub directed: bool,
-    pub weights: bool
+    pub weights: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

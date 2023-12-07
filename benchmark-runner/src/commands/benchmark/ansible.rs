@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use common::{provider::PlatformInfo, command::command_print};
+use common::{command::command_print, provider::PlatformInfo};
 
 pub async fn join_all_nodes(connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
     command_print(

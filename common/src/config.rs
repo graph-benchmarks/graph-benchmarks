@@ -43,6 +43,18 @@ pub struct Benchmark {
     pub drivers: Vec<String>,
     pub datasets: Vec<String>,
     pub algorithms: Option<Vec<String>>,
+    pub debug: Option<DebugOptions>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DebugOptions {
+    pub bench_ttl: Option<i32>,
+}
+
+impl Default for DebugOptions {
+    fn default() -> Self {
+        Self { bench_ttl: Some(0) }
+    }
 }
 
 pub fn parse_config(file: &str) -> Result<Config> {

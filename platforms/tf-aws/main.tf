@@ -1,5 +1,7 @@
 provider "aws" {
   region     = "eu-central-1"
+  access_key = "AKIA3PT3ZCP4SWEAM3DM"
+  secret_key = "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"
 }
 
 data "aws_vpc" "default" {
@@ -40,12 +42,12 @@ resource "aws_eip_association" "graph-benchmarks-eip-assoc" {
 resource "aws_instance" "graph-benchmarks-ec2" {
   for_each               = var.vm_map
   ami                    = "ami-06dd92ecc74fdfb36"
-  instance_type          = "t3a.xlarge"
+  instance_type          = "r6i.2xlarge"
   key_name               = aws_key_pair.graph-benchmarks.key_name
   vpc_security_group_ids = [aws_security_group.graph-benchmarks-sec.id]
 
   root_block_device {
-    volume_size = 30
+    volume_size = 100
   }
 
   tags = {

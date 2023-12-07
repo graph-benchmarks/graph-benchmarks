@@ -1,24 +1,52 @@
-use std::{env, collections::{HashMap, BTreeMap}, time::Instant, net::IpAddr};
+use std::{
+    collections::{BTreeMap, HashMap},
+    env,
+    net::IpAddr,
+    time::Instant,
+};
 
-use common::{config::parse_config, exit, command::{progress, finish_progress, GREEN_TICK, command_print}, provider::PlatformInfo};
-use diesel::{Connection, SelectableHelper, ExpressionMethods};
-use diesel_async::{AsyncPgConnection, AsyncConnection, async_connection_wrapper::AsyncConnectionWrapper, RunQueryDsl};
-use diesel_migrations::{EmbeddedMigrations, embed_migrations, MigrationHarness};
 use anyhow::Result;
-use futures_util::{TryStreamExt, future::join, StreamExt};
-use k8s_openapi::api::{core::v1::{Service, Node, Pod, ConfigMap, PodTemplateSpec, PodSpec, Container, VolumeMount, Volume, NFSVolumeSource, ConfigMapVolumeSource}, batch::v1::{Job, JobSpec}};
-use kube::{Api, Client, api::{WatchParams, ListParams, DeleteParams, PostParams}, core::{WatchEvent, ObjectMeta}, runtime::{watcher, WatchStreamExt}, ResourceExt};
-use tokio::{net::TcpStream, spawn};
-use tokio_tungstenite::{connect_async, WebSocketStream, MaybeTlsStream};
+use common::{
+    command::{command_print, finish_progress, progress, GREEN_TICK},
+    config::parse_config,
+    exit,
+    provider::PlatformInfo,
+};
+use diesel::{Connection, ExpressionMethods, SelectableHelper};
+use diesel_async::{
+    async_connection_wrapper::AsyncConnectionWrapper, AsyncConnection, AsyncPgConnection,
+    RunQueryDsl,
+};
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use futures_util::{future::join, StreamExt, TryStreamExt};
+use k8s_openapi::api::{
+    batch::v1::{Job, JobSpec},
+    core::v1::{
+        ConfigMap, ConfigMapVolumeSource, Container, NFSVolumeSource, Node, Pod, PodSpec,
+        PodTemplateSpec, Service, Volume, VolumeMount,
+    },
+};
+use kube::{
+    api::{DeleteParams, ListParams, PostParams, WatchParams},
+    core::{ObjectMeta, WatchEvent},
+    runtime::{watcher, WatchStreamExt},
+    Api, Client, ResourceExt,
+};
+use tokio::{fs, net::TcpStream, spawn};
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tracing::info;
 
-use crate::{args::Cli, metrics_utils::{start_recording, stop_recording}, model::Benchmark};
+use crate::{
+    args::Cli,
+    metrics_utils::{start_recording, stop_recording},
+    model::Benchmark,
+};
 
-use self::{types::*, helpers::*, ansible::*};
+use self::{ansible::*, helpers::*, types::*};
 
-mod types;
-mod helpers;
 mod ansible;
+mod helpers;
+mod types;
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 const ALGORITHMS: &[&str] = &["bfs", "pr", "wcc", "cdlp", "lcc", "sssp"];
@@ -50,6 +78,8 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     .await?;
 
     env::set_var("KUBECONFIG", "k3s/kube-config");
+    config.setup.node_configs.sort_by(|a, b| b.cmp(a));
+
     start_notifier(connect_args.master_ip.to_string()).await?;
     copy_datasets(
         &config.benchmark.datasets,
@@ -63,7 +93,13 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     )
     .await?;
     clear_dirs(&connect_args, cli.verbose).await?;
-    join_all_nodes(&connect_args, cli.verbose).await?;
+
+    let client = Client::try_default().await?;
+    let nodes: Api<Node> = Api::all(client);
+    let nodes = nodes.list(&ListParams::default()).await?;
+    if nodes.items.len() != config.setup.node_configs[0] {
+        join_all_nodes(&connect_args, cli.verbose).await?;
+    }
     start_metrics(&connect_args.master_ip.to_string()).await?;
 
     let svc: Api<Service> = Api::default_namespaced(Client::try_default().await?);
@@ -80,7 +116,6 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     let (mut ws_stream, _) =
         connect_async(format!("ws://{}:30003/ws", connect_args.master_ip)).await?;
 
-    config.setup.node_configs.sort_by(|a, b| b.cmp(a));
     for n_nodes in config.setup.node_configs {
         new_cluster_node_count(n_nodes).await?;
         for driver in &config.benchmark.drivers {
@@ -139,17 +174,29 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         nodes: n_nodes,
                     });
 
+                    let d: DatasetUserConfig = toml::from_str(
+                        &fs::read_to_string(format!("datasets/{dataset}/config.toml")).await?,
+                    )?;
                     cfg.dataset = DatasetConfig {
                         name: dataset.clone(),
                         vertex: format!("/attached/{dataset}.v"),
                         edges: format!("/attached/{dataset}.e"),
+                        weights: d.weights,
+                        directed: d.directed,
                     };
                     cfg.config.algo = algorithm.clone();
                     cfg.config.id = run_id;
                     info!("{cfg:#?}");
 
                     let start = Instant::now();
-                    start_bench(&driver, &connect_args.master_ip, &cfg, nfs_ip.clone()).await?;
+                    start_bench(
+                        &driver,
+                        &connect_args.master_ip,
+                        &cfg,
+                        nfs_ip.clone(),
+                        config.benchmark.debug.clone().unwrap_or_default().bench_ttl,
+                    )
+                    .await?;
 
                     match ws_stream.try_next().await? {
                         Some(msg) => {
@@ -373,6 +420,7 @@ async fn start_bench(
     host_ip: &IpAddr,
     cfg: &DriverConfig<'_>,
     nfs_ip: String,
+    bench_ttl: Option<i32>,
 ) -> Result<()> {
     let client = Client::try_default().await?;
 
@@ -447,7 +495,7 @@ async fn start_bench(
     };
     job_spec.spec = Some(JobSpec {
         backoff_limit: Some(0),
-        ttl_seconds_after_finished: Some(0),
+        ttl_seconds_after_finished: bench_ttl,
         template: PodTemplateSpec {
             metadata: Some(ObjectMeta {
                 labels: Some(BTreeMap::from([("app".into(), "graph-bench".into())])),

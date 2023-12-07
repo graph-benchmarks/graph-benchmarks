@@ -80,9 +80,17 @@ eg:
 ├── twitter
 │   ├── twitter.v
 │   ├── twitter.e
+│   ├── config.toml
 ├── facebook
 │   ├── facebook.v
 │   ├── facebook.e
+│   ├── config.toml
+```
+
+The `config.toml` file contains these parameters:
+```toml
+weights = false
+directed = false
 ```
 
 ## Graph platform arguments

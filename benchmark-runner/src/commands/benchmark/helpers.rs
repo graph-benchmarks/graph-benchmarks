@@ -1,14 +1,25 @@
 use std::{collections::BTreeMap, time::Instant};
 
 use anyhow::Result;
-use common::command::{progress, finish_progress};
+use common::command::{finish_progress, progress};
 use futures_util::{future::join_all, StreamExt, TryStreamExt};
-use k8s_openapi::api::{core::v1::{EnvVar, PodTemplateSpec, PodSpec, Container, VolumeMount, Volume, NFSVolumeSource, Pod, ContainerPort, Service, ServiceSpec, ServicePort}, batch::v1::{Job, JobSpec}};
-use kube::{Client, Api, api::{PostParams, ListParams, WatchParams, DeleteParams}, core::WatchEvent};
+use k8s_openapi::api::{
+    batch::v1::{Job, JobSpec},
+    core::v1::{
+        Container, ContainerPort, EnvVar, NFSVolumeSource, Pod, PodSpec, PodTemplateSpec, Service,
+        ServicePort, ServiceSpec, Volume, VolumeMount,
+    },
+};
+use kube::{
+    api::{DeleteParams, ListParams, PostParams, WatchParams},
+    core::WatchEvent,
+    Api, Client,
+};
+use regex::Regex;
 use tokio::spawn;
 use tracing::info;
 
-use super::{POSTGRES_CONFIG, types::Run};
+use super::{types::Run, POSTGRES_CONFIG};
 
 fn env_var(name: &str, value: &str) -> EnvVar {
     EnvVar {
@@ -247,7 +258,6 @@ pub async fn start_notifier(host_ip: String) -> Result<()> {
     Ok(())
 }
 
-
 pub async fn visualize_dataset_algos(
     runs: &[Run],
     driver: &str,
@@ -283,9 +293,10 @@ pub async fn visualize_algos_workers(
     let pb = progress(&format!("Generating overall visualizations"));
     let start = Instant::now();
     let mut jobs = Vec::new();
+    let r = Regex::new(r#"[^a-z0-9-]"#)?;
     for dataset in datasets {
         jobs.push(visualize(
-            format!("{dataset}"),
+            format!("{}", r.replace(dataset, "")),
             host_ip.clone(),
             runs.iter().map(|x| x.run_id).collect::<Vec<i32>>(),
             nfs_ip.clone(),
@@ -302,4 +313,3 @@ pub async fn visualize_algos_workers(
     );
     Ok(())
 }
-

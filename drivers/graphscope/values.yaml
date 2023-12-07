@@ -1,29 +1,38 @@
+image:
+  tag: 0.26.0a20231205
 engines:
   gae:
     resources:
       requests:
-        cpu: 1
-        memory: 1Gi
+        cpu: 8
+        memory: 8Gi
       limits:
-        cpu: 1
-        memory: 1Gi
+        cpu: 8
+        memory: 8Gi
   gie:
     resources:
       requests:
-        cpu: 1
-        memory: 1Gi
+        cpu: 8
+        memory: 8Gi
       limits:
-        cpu: 1
-        memory: 1Gi
-  num_workers: 1
-
+        cpu: 8
+        memory: 8Gi
+  num_workers: 4
+withJupyter: false
+vineyard:
+  resources:
+    requests:
+      cpu: 2
+      memory: 12Gi
+    limits:
+      cpu: 2
+      memory: 12Gi
+  shared_mem: 1024Gi
 coordinator:
   resources:
     requests:
-      cpu: 1
-      memory: 1Gi
+      cpu: 2
+      memory: 3Gi
     limits:
-      cpu: 1
-      memory: 1Gi
-
-withJupyter: false
+      cpu: 2
+      memory: 3Gi
