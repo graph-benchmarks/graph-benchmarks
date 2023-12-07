@@ -50,7 +50,7 @@ def batch_load(gds: GDS.GraphDataScience, queries, params):
     batch_size = 5000 
     
     ve_count = [0, 0]
-    for i in params:
+    for i in range(len(params)):
         dft:pd.DataFrame = params[i]
         query:str = queries[i]
         count = 0
