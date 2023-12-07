@@ -11,6 +11,7 @@ from graphscope.framework.graph import Graph, GraphDAGNode
 from kubernetes import client, config as KubeConfig
 import shutil
 
+lf: TextIOWrapper
 # check if table exists on postgres
 def check_table(conn: psycopg.Connection)->None:
     cur = conn.cursor()
@@ -108,6 +109,7 @@ def load_data(configs, sess:gs.Session, vertex_file:str, edge_file:str):
         metadata=client.V1ObjectMeta(name="bench-graphscope-hdfs-loader"),
         spec=spec)
 
+    global lf
     lf.write("starting copy job")
     api_response = client.BatchV1Api().create_namespaced_job(
         body=job,
@@ -176,8 +178,8 @@ def sssp(config, g: Graph | GraphDAGNode)->int:
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
-lf: TextIOWrapper
 def main():
+    global lf
     # functional arguments position for the program
     # config_file_path id1 id2 algorithm dataset log_file
     

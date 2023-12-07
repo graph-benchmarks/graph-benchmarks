@@ -25,11 +25,15 @@
 
     - name: Install hdfs
       kubernetes.core.helm:
-        name: hdfs
+        name: hadoop
         release_namespace: default
         chart_ref: apache-hadoop-helm/hadoop
         values_files:
           - hdfs.yaml
+
+    - name: Pause for 1 minute for hdfs to spin up
+      ansible.builtin.pause:
+        minutes: 1
 
     - name: Install graphscope
       kubernetes.core.helm:

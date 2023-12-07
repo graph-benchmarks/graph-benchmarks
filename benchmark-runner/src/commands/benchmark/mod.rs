@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     env,
     net::IpAddr,
-    time::Instant,
+    time::{Instant, Duration},
 };
 
 use anyhow::Result;
@@ -32,7 +32,7 @@ use kube::{
     runtime::{watcher, WatchStreamExt},
     Api, Client, ResourceExt,
 };
-use tokio::{fs, net::TcpStream, spawn};
+use tokio::{fs, net::TcpStream, spawn, time::sleep};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tracing::info;
 
@@ -214,23 +214,24 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     )
                     .await?;
 
-                    match ws_stream.try_next().await? {
-                        Some(msg) => {
-                            let msg: BenchStartEvent = serde_json::from_str(&msg.into_text()?)?;
-                            if !msg.status {
-                                exit!(
-                                    "",
-                                    "Expected bench starting message, got bench ending message"
-                                );
-                            }
-                        }
-                        None => exit!("", "Received incorrect benchmark starting signal"),
-                    }
-
                     let metrics_ip = format!("http://{}:30001", connect_args.master_ip);
                     for run_id in run_ids {
+                        match ws_stream.try_next().await? {
+                            Some(msg) => {
+                                let msg: BenchStartEvent = serde_json::from_str(&msg.into_text()?)?;
+                                if !msg.status {
+                                    exit!(
+                                        "",
+                                        "Expected bench starting message, got bench ending message"
+                                    );
+                                }
+                            }
+                            None => exit!("", "Received incorrect benchmark starting signal"),
+                        }
+
                         start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
                         info!("started recording metrics on {metrics_ip}");
+
                         ws_stream = wait_for_ws_end_message(
                             ws_stream,
                             metrics_ip.clone(),
@@ -400,6 +401,8 @@ async fn setup_graph_platform(
     let pod_label = base_driver::get_driver_config(name)
         .unwrap()
         .pod_ready_label();
+
+    sleep(Duration::from_secs(10)).await;
 
     let pods: Api<Pod> = Api::default_namespaced(client.clone());
     if let Ok(pod_list) = pods.list(&ListParams::default().labels(pod_label)).await {

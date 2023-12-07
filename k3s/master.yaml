@@ -127,7 +127,10 @@
 
     - name: Set nfs dir permissions
       become: true
-      ansible.builtin.shell: chmod 777 /cluster-data && mkdir -p /cluster-data/visualize-storage && mkdir -p /cluster-data/bench-storage && mkdir -p /cluster-data/scratch
+      ansible.builtin.shell: chmod 777 /cluster-data
+
+    - name: Create nfs base dirs
+      ansible.builtin.shell: mkdir -p /cluster-data/visualize-storage && mkdir -p /cluster-data/bench-storage && mkdir -p /cluster-data/scratch
 
     - name: Install docker
       become: true

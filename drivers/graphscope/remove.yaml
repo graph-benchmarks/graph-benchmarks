@@ -8,3 +8,27 @@
         chart_ref: graphscope/graphscope
         state: absent
         wait: true
+
+    - name: Remove hdfs
+      kubernetes.core.helm:
+        name: hadoop
+        namespace: default
+        chart_ref: apache-hadoop-helm/hadoop
+        state: absent
+        wait: true
+
+    - name: Remove hdfs nn pvc
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: PersistentVolumeClaim
+        namespace: default
+        name: dfs-hadoop-hadoop-hdfs-nn-0
+
+    - name: Remove hdfs dn pvc
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: PersistentVolumeClaim
+        namespace: default
+        name: dfs-hadoop-hadoop-hdfs-dn-0
