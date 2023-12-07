@@ -34,14 +34,14 @@ def log_metrics_sql(conn: psycopg.Connection, log_id:int, algo:str, dataset:str,
 
 def full_load(gds : GDS.GraphDataScience, queries, params):
     df_v: pd.DataFrame = params[0]
-    df_e: pd.DataFrame = params[0]
+    df_e: pd.DataFrame = params[1]
     add_nodes_query = queries[0]
     add_relations_query = queries[1]
     
     rows = df_v.to_dict("records")
     tot_vertex = gds.run_cypher(add_nodes_query, params={"rows":rows}).iloc[0,0]
     
-    rows =df_e.to_dict("records")
+    rows = df_e.to_dict("records")
     tot_edges = gds.run_cypher(add_relations_query, params={"rows":rows}).iloc[0,0]
 
     return tot_vertex, tot_edges
@@ -103,7 +103,7 @@ def load_data(gds: GDS.GraphDataScience, config, vertex_file:str, edge_file:str,
         RETURN count(*) as total""".format(vertex_file)
 
         d_str = "-" if not config["dataset"]["directed"] else "->" 
-        w_str = '{weight: line[2]}' if config["dataset"]["weights"] else "" 
+        w_str = ' {weight: line[2]}' if config["dataset"]["weights"] else "" 
         
         add_relations_query = """LOAD CSV FROM 'file://{}' AS line
         UNWIND line[0] as nodeID
@@ -117,27 +117,27 @@ def load_data(gds: GDS.GraphDataScience, config, vertex_file:str, edge_file:str,
     else:
         add_nodes_query = """UNWIND $rows AS row
         MERGE (:node {nid: row.vertex})
-        RETURN count(*) as total
-        """
+        RETURN count(*) as total"""
+
         d_str = "-" if not config["dataset"]["directed"] else "->" 
-        w_str = '{weight: row.weight}' if config["dataset"]["weights"] else ""        
+        w_str = ' {weight: row.weight}' if config["dataset"]["weights"] else ""        
         
         add_relations_query = """UNWIND $rows AS row
         UNWIND row.src AS nodeID
         UNWIND row.dst AS destID
         MATCH (s:node {{nid: nodeID}})
         MATCH (d:node {{nid: destID}})
-        MERGE (s)-[:EDGE {}]{}(d)
-        RETURN count(*) as total
-        """.format(w_str, d_str)
+        MERGE (s)-[:EDGE{}]{}(d)
+        RETURN count(*) as total""".format(w_str, d_str)
+
         queries = (add_nodes_query, add_relations_query)
 
     load_lst = [full_load, batch_load, csv_load]
     
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     [tot_vertex, tot_edges] = load_lst[ltype](gds, queries, (df_v, df_e)) 
-    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    
+    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC) 
+
     if not config["dataset"]["directed"]:
         G, result = gds.graph.project("my-graph", ["node"], "EDGE")
     else:
@@ -207,9 +207,9 @@ def main():
 
     #sql params
     ids = [int(x.strip()) for x in config["config"]["ids"].split(",")]
-    algos = [x.strip() for x in config["config"]["ids"].split(",")]
+    algos = [x.strip() for x in config["config"]["algos"].split(",")]
     id_algos = list(zip(ids, algos)) 
-    nodes = config["confing"]["nodes"]
+    nodes = config["config"]["nodes"]
 
     log_file = config["config"]["log_file"]
     lf = open(log_file, "w+")
