@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     env,
     net::IpAddr,
-    time::{Instant, Duration},
+    time::{Duration, Instant},
 };
 
 use anyhow::Result;
@@ -166,12 +166,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         .collect::<Vec<String>>(),
                 );
 
-                let pb = progress(&format!(
-                    "Benchmarking {} times (on {dataset})",
-                    config.benchmark.repeat
-                ));
-                let start = Instant::now();
-
+                println!("Benchmarking {dataset} {} times", config.benchmark.repeat);
                 for _ in 0..config.benchmark.repeat {
                     let run_ids = get_run_ids(&mut connection, n_nodes, algos.len()).await?;
                     run_ids
@@ -215,7 +210,12 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     .await?;
 
                     let metrics_ip = format!("http://{}:30001", connect_args.master_ip);
-                    for run_id in run_ids {
+                    for i in 0..run_ids.len() {
+                        let pb = progress(&format!(
+                            "Benchmarking ({} on {dataset})",
+                            algos[i]
+                        ));
+                        let start = Instant::now();
                         match ws_stream.try_next().await? {
                             Some(msg) => {
                                 let msg: BenchStartEvent = serde_json::from_str(&msg.into_text()?)?;
@@ -229,27 +229,27 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                             None => exit!("", "Received incorrect benchmark starting signal"),
                         }
 
-                        start_recording(metrics_ip.clone(), pod_ids.clone(), run_id).await?;
+                        start_recording(metrics_ip.clone(), pod_ids.clone(), run_ids[i]).await?;
                         info!("started recording metrics on {metrics_ip}");
 
                         ws_stream = wait_for_ws_end_message(
                             ws_stream,
                             metrics_ip.clone(),
                             pod_ids.clone(),
-                            run_id,
+                            run_ids[i],
                         )
                         .await?;
+
+                        finish_progress(
+                            "Done benchmarking",
+                            &format!("{} on {dataset}", algos[i]),
+                            start.elapsed(),
+                            Some(pb),
+                        );
                     }
 
                     wait_for_bench_delete().await?;
                 }
-
-                finish_progress(
-                    &format!("Done benchmarking {} times", config.benchmark.repeat),
-                    &format!("on {dataset}"),
-                    start.elapsed(),
-                    Some(pb),
-                );
             }
             visualize_dataset_algos(
                 &runs[runs_start_point..],

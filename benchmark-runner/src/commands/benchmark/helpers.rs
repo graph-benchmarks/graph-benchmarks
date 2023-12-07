@@ -298,7 +298,10 @@ pub async fn visualize_algos_workers(
         jobs.push(visualize(
             format!("{}", r.replace(dataset, "")),
             host_ip.clone(),
-            runs.iter().map(|x| x.run_id).collect::<Vec<i32>>(),
+            runs.iter()
+                .filter(|x| x.dataset.eq(dataset))
+                .map(|x| x.run_id)
+                .collect::<Vec<i32>>(),
             nfs_ip.clone(),
             "lines",
         ));

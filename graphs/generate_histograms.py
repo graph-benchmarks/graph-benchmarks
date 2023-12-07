@@ -24,7 +24,7 @@ def generate_histograms(data_rows, output_directory, select_log_ids):
     log_ids = set([int(n) for n in sum([l.split(',') for l in re.findall(r'[\d,]+[,\d]', select_log_ids)], []) if n.isdigit()])
 
     for row in data_rows:
-        log_id, algo, dataset, log_type, time, vertex, edge, workers = row
+        log_id, algo, dataset, time, workers = row
 
         algorithms.add(algo)
         datasets.add(dataset)

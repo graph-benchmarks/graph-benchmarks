@@ -24,7 +24,7 @@ def generate_line_graph(
     algorithms = set()
     prev_dataset = ""
     for row in data_rows:
-        log_id, algo, dataset, log_type, time, vertex, edge, workers = row
+        log_id, algo, dataset, time, workers = row
         
         # Use only the right dataset.
         if use_dataset == None or use_dataset == "":
