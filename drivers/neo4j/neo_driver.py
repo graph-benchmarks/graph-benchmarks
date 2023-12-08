@@ -11,8 +11,7 @@ import pandas as pd
 # check if table exists on postgres
 def check_table(conn: psycopg.Connection) -> None:
     cur = conn.cursor()
-    query = sql.SQL(
-        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'gn_test') AS table_existence"
+    query = sql.SQL( "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'gn_test') AS table_existence"
     )
     ret = cur.execute(query)
 
@@ -93,15 +92,11 @@ def csv_load(gds: GDS.GraphDataScience, queries, params):
 
     gds.run_cypher(add_nodes_query)
     gds.run_cypher(add_relations_query)
-
-    tot_vertex = gds.run_cypher(
-        """MATCH (n:node)
-                                RETURN count(n) as total"""
-    ).iloc[0, 0]
-    tot_edges = gds.run_cypher(
-        """MATCH ()-[r:EDGE]->()
-                               RETURN count(r) as total"""
-    ).iloc[0, 0]
+    
+    tot_vertex = gds.run_cypher("""MATCH (n:node)
+                                RETURN count(n) as total""").iloc[0,0]
+    tot_edges = gds.run_cypher("""MATCH ()-[r:EDGE]->()
+                               RETURN count(r) as total""").iloc[0,0]
 
     return tot_vertex, tot_edges
 
@@ -133,25 +128,25 @@ def load_data(
 
     if ltype == 2:
         add_nodes_query = """LOAD CSV FROM '{}' AS line FIELDTERMINATOR ' '
-        CALL {
-        WITH line
-        CREATE (:node {{nid: line[0]}})
-        } IN TRANSACTIONS OF 500 rows
-        """.format(
+        CALL {{
+         WITH line
+         CREATE (:node {{nid: line[0]}})
+        }} IN TRANSACTIONS OF 100000 rows;""".format(
             vertex_file
         )
 
-        d_str = "-" if not config["dataset"]["directed"] else "->"
+        d_str = "-" #"-" if not config["dataset"]["directed"] else "->"
         w_str = " {weight: line[2]}" if config["dataset"]["weights"] else ""
+                
+        #print("index")
 
         add_relations_query = """LOAD CSV FROM '{}' AS line FIELDTERMINATOR ' ' 
-        CALL {
-        WITH line
-        MATCH (s:node {{nid: line[0]}})
-        MATCH (d:node {{nid: line[1]}})
-        CREATE (s)-[:EDGE{}]{}(d)
-        } IN TRANSACTIONS OF 500 ROWS
-        """.format(
+        CALL {{
+         WITH line
+         MATCH (s:node {{nid: line[0]}})
+         MATCH (d:node {{nid: line[1]}})
+         MERGE (s)-[:EDGE{}]{}(d)
+        }} IN TRANSACTIONS OF 10000 ROWS;""".format(
             edge_file, w_str, d_str
         )
         queries = (add_nodes_query, add_relations_query)
@@ -178,18 +173,25 @@ def load_data(
 
     load_lst = [full_load, batch_load, csv_load]
 
-    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    [tot_vertex, tot_edges] = load_lst[ltype](gds, queries, (df_v, df_e))
-    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    #start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    #[tot_vertex, tot_edges] = load_lst[ltype](gds, queries, (df_v, df_e))
+    #end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+   
+    add_index ="""CREATE INDEX node_index FOR (n:node) ON (n.nid)"""
+    gds.run_cypher(add_index)
 
+    # import names according to projection
     if not config["dataset"]["directed"]:
         G, result = gds.graph.project("my-graph", ["node"], "EDGE")
     else:
         G, result = gds.graph.project(
             "my-graph", ["node"], {"EDGE": {"properties": ["weight"]}}
         )
-    duration = end_time - start_time
-
+    duration = 0 
+    tot_vertex = gds.run_cypher("""MATCH (n:node)
+                                RETURN count(n) as total""").iloc[0,0]
+    tot_edges = gds.run_cypher("""MATCH ()-[r:EDGE]->()
+                               RETURN count(r) as total""").iloc[0,0]
     return G, duration, tot_vertex, tot_edges
 
 
@@ -300,7 +302,7 @@ def main():
 
     check_table(conn)
 
-    [G, duration, vertex, edge] = load_data(gds, config, vertex_file, edge_file, 0)
+    [G, duration, vertex, edge] = load_data(gds, config, vertex_file, edge_file, 2)
 
     # vertex = graph_vertex_count(g)
     # edge = graph_edge_count(g)
@@ -316,9 +318,9 @@ def main():
         id_ = entry[0]
         algo = entry[1]
 
-        requests.post("http://notifier:8080/starting")
+        #requests.post("http://notifier:8080/starting")
         dur = func_d[algo](config, gds, G)
-        requests.post("http://notifier:8080/stopping")
+        #requests.post("http://notifier:8080/stopping")
 
         if dur > 0:
             log_metrics_sql(
@@ -328,6 +330,5 @@ def main():
     lf.close()
     gds.close()
     conn.close()
-
 
 main()
