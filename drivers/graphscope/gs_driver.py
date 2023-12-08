@@ -10,6 +10,7 @@ from graphscope.framework import loader
 from graphscope.framework.graph import Graph, GraphDAGNode
 from kubernetes import client, config as KubeConfig
 import shutil
+import pandas as pd
 
 lf: TextIOWrapper
 
@@ -160,8 +161,24 @@ def load_data(configs, sess: gs.Session, vertex_file: str, edge_file: str):
     [tot_vertex, tot_edges] = graph_vertex_edge_count(sess, g)
     return duration, g, tot_vertex, tot_edges
 
+def load_data_with_pd(config, sess:gs.Session, vertex_file:str, edge_file:str):
+    """
+    Returns loaded graph, vertex number, edge_number
+    """
+    g = sess.g(directed=config["dataset"]["directed"])
 
-def bfs(config, g: Graph | GraphDAGNode) -> int:
+    df_v = pd.read_csv(vertex_file, header=None, names=["vertex"])
+    if not config["dataset"]["weights"]:
+        df_e = pd.read_csv(edge_file, header=None, names=["src","dst"], sep=" ")
+    else:
+        df_e = pd.read_csv(edge_file, header=None, names=["src", "dst", "weights"], sep=" ")
+
+    g = g.add_vertices(df_v).add_edges(df_e)
+
+    [tot_vertex, tot_edges] = graph_vertex_edge_count(sess, g)
+    return g, tot_vertex, tot_edges
+
+def bfs(config, g: Graph | GraphDAGNode)->int:
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     gs.bfs(g)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
@@ -264,14 +281,24 @@ def main():
         quit(1)
 
     check_table(conn)
+
+    # loading warmup dataset
+    warmup_vertex_file = "warm_up_dataset/test-bfs-undirected.v"
+    warmup_edge_file = "warm_up_dataset/test-bfs-undirected.e"
+    [warmup_g, _, _] = load_data_with_pd(config, sess, warmup_vertex_file, warmup_edge_file)
+
     [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
 
+    # firing up warmup runs
+    func_d = {'bfs': bfs, 'pr': pr, 'wcc': wcc, 'cdlp': cdlp, 'lcc': lcc, 'sssp': sssp}
+    entry: (int, str)
     for entry in id_algos:
-        log_metrics_sql(
-            conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes
-        )
+        dur = func_d[entry[1]](config, warmup_g)
+    lf.write("warmup session finished")
 
-    func_d = {"bfs": bfs, "pr": pr, "wcc": wcc, "cdlp": cdlp, "lcc": lcc, "sssp": sssp}
+    entry: (int, str)
+    for entry in id_algos:
+        log_metrics_sql(conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes)
 
     for entry in id_algos:
         lf.write("starting " + entry[1] + " with id " + str(entry[0]))
