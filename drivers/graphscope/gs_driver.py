@@ -238,7 +238,6 @@ def main():
 
     try:
         sess_warmup = gs.session(addr=f"{gs_host}:{gs_port}")
-        sess = gs.session(addr=f"{gs_host}:{gs_port}")
     except:
         lf.write("Error: could not connect to graphscope cluster\n")
         lf.close()
@@ -252,15 +251,16 @@ def main():
     warmup_edge_file = "warm_up_dataset/test-bfs-undirected.e"
     [warmup_g, _, _] = load_data_with_pd(config, sess_warmup, warmup_vertex_file, warmup_edge_file)
 
-    [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
-
     # firing up warmup runs
     func_d = {'bfs': bfs, 'pr': pr, 'wcc': wcc, 'cdlp': cdlp, 'lcc': lcc, 'sssp': sssp}
     entry: (int, str)
     for entry in id_algos:
         dur = func_d[entry[1]](config, warmup_g)
     lf.write("warmup session finished")
+    sess_warmup.close()
 
+    sess = gs.session(addr=f"{gs_host}:{gs_port}")
+    [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
     entry: (int, str)
     for entry in id_algos:
         log_metrics_sql(conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes)
