@@ -144,7 +144,6 @@ def load_data_with_pd(config, sess:gs.Session, vertex_file:str, edge_file:str):
     else:
         df_e = pd.read_csv(edge_file, header=None, names=["src", "dst", "weights"], sep=" ")
 
-    g = g.add_vertices(vertex_file, vid_field="vertex").add_edges(edge_file, src_field="src", dst_field="dst")
     g = g.add_vertices(df_v).add_edges(df_e)
 
     [tot_vertex, tot_edges] = graph_vertex_edge_count(sess, g)
@@ -176,14 +175,14 @@ def wcc(config, g: Graph | GraphDAGNode)->int:
 # community detection using label propagation
 def cdlp(config,g: Graph | GraphDAGNode)->int:
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    gs.lpa(g)
+    gs.cdlp(g)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
 # local cluster coefficient
 def lcc(config, g: Graph | GraphDAGNode)->int:
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    gs.avg_clustering(g)
+    gs.lcc(g)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
@@ -237,7 +236,6 @@ def main():
         quit(1)
 
     try:
-        sess_warmup = gs.session(addr=f"{gs_host}:{gs_port}")
         sess = gs.session(addr=f"{gs_host}:{gs_port}")
     except:
         lf.write("Error: could not connect to graphscope cluster\n")
@@ -250,7 +248,7 @@ def main():
     # loading warmup dataset
     warmup_vertex_file = "warm_up_dataset/test-bfs-undirected.v"
     warmup_edge_file = "warm_up_dataset/test-bfs-undirected.e"
-    [warmup_g, _, _] = load_data_with_pd(config, sess_warmup, warmup_vertex_file, warmup_edge_file)
+    [warmup_g, _, _] = load_data_with_pd(config, sess, warmup_vertex_file, warmup_edge_file)
 
     [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
 
