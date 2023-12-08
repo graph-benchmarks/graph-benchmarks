@@ -91,8 +91,17 @@ def csv_load(gds: GDS.GraphDataScience, queries, params):
     add_nodes_query = queries[0]
     add_relations_query = queries[1]
 
-    tot_vertex = gds.run_cypher(add_nodes_query).iloc[0, 0]
-    tot_edges = gds.run_cypher(add_relations_query).iloc[0, 0]
+    gds.run_cypher(add_nodes_query)
+    gds.run_cypher(add_relations_query)
+
+    tot_vertex = gds.run_cypher(
+        """MATCH (n:node)
+                                RETURN count(n) as total"""
+    ).iloc[0, 0]
+    tot_edges = gds.run_cypher(
+        """MATCH ()-[r:EDGE]->()
+                               RETURN count(r) as total"""
+    ).iloc[0, 0]
 
     return tot_vertex, tot_edges
 
@@ -123,23 +132,27 @@ def load_data(
             )
 
     if ltype == 2:
-        add_nodes_query = """LOAD CSV FROM 'file://{}' AS line
+        add_nodes_query = """LOAD CSV FROM '{}' AS line FIELDTERMINATOR ' '
+        CALL {
+        WITH line
         CREATE (:node {{nid: line[0]}})
-        RETURN count(*) as total""".format(
+        } IN TRANSACTIONS OF 500 rows
+        """.format(
             vertex_file
         )
 
         d_str = "-" if not config["dataset"]["directed"] else "->"
         w_str = " {weight: line[2]}" if config["dataset"]["weights"] else ""
 
-        add_relations_query = """LOAD CSV FROM 'file://{}' AS line
-        UNWIND line[0] as nodeID
-        UNWIND line[1] as destID
-        MATCH (s:node {{nid: nodeID}})
-        MATCH (d:node {{nid: destID}})
-        MERGE (s)-[:EDGE{}]{}(d)
-        RETURN count(*) as total""".format(
-            edge_file, d_str, w_str
+        add_relations_query = """LOAD CSV FROM '{}' AS line FIELDTERMINATOR ' ' 
+        CALL {
+        WITH line
+        MATCH (s:node {{nid: line[0]}})
+        MATCH (d:node {{nid: line[1]}})
+        CREATE (s)-[:EDGE{}]{}(d)
+        } IN TRANSACTIONS OF 500 ROWS
+        """.format(
+            edge_file, w_str, d_str
         )
         queries = (add_nodes_query, add_relations_query)
 
