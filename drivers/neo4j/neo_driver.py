@@ -102,118 +102,122 @@ def wait_for_db_ready(session: NeoSession):
             break
 
 def load_data(gds: GDS.GraphDataScience, config, vertex_file: str, edge_file: str):
-    neo = connect_neo4j(config)
-    session = neo.session()
-    session.run(f"DROP DATABASE neo4j")
+    if bool(config["load_data"]):
+        neo = connect_neo4j(config)
+        session = neo.session()
+        session.run(f"DROP DATABASE neo4j")
 
-    vertex_file_name = os.path.basename(vertex_file)
-    edge_file_name = os.path.basename(edge_file)
+        vertex_file_name = os.path.basename(vertex_file)
+        edge_file_name = os.path.basename(edge_file)
 
-    os.rename(f"{vertex_file}", f"/attached/import/{vertex_file_name}")
-    os.rename(f"{edge_file}", f"/attached/import/{edge_file_name}")
+        os.rename(f"{vertex_file}", f"/attached/import/{vertex_file_name}")
+        os.rename(f"{edge_file}", f"/attached/import/{edge_file_name}")
 
-    with open(f"/attached/import/{edge_file_name}", "r") as f:
-        data = f.readline()
-        add_weights = len(data.split(" ")) == 3
+        with open(f"/attached/import/{edge_file_name}", "r") as f:
+            data = f.readline()
+            add_weights = len(data.split(" ")) == 3
 
-    with open("/attached/import/v_headers.v", "w+") as f:
-        f.write("vertex:ID(vertex)\n")
-        f.close()
+        with open("/attached/import/v_headers.v", "w+") as f:
+            f.write("vertex:ID(vertex)\n")
+            f.close()
 
-    with open("/attached/import/e_headers.e", "w+") as f:
-        f.write(":START_ID(vertex) :END_ID(vertex)")
-        if add_weights:
-            f.write(" weight:float")
-        f.write("\n")
-        f.close()
+        with open("/attached/import/e_headers.e", "w+") as f:
+            f.write(":START_ID(vertex) :END_ID(vertex)")
+            if add_weights:
+                f.write(" weight:float")
+            f.write("\n")
+            f.close()
 
-    status = os.system("helm repo add neo4j https://helm.neo4j.com/neo4j")
-    if os.WEXITSTATUS(status) != 0:
-        sys.exit(-1)
+        status = os.system("helm repo add neo4j https://helm.neo4j.com/neo4j")
+        if os.WEXITSTATUS(status) != 0:
+            sys.exit(-1)
 
-    num_instances = int(config["platform"]["neo_instances"])
-    KubeConfig.load_incluster_config()
-    api = client.CoreV1Api()
-    for i in range(1, num_instances + 1):
-        wait_for_pod(api, f"server-{i}-0")
+        num_instances = int(config["platform"]["neo_instances"])
+        KubeConfig.load_incluster_config()
+        api = client.CoreV1Api()
+        for i in range(1, num_instances + 1):
+            wait_for_pod(api, f"server-{i}-0")
 
-    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    api_instance = client.CoreV1Api()
-    resp = stream(
-        api_instance.connect_get_namespaced_pod_exec,
-        "server-1-0",
-        "default",
-        command=[
-            "neo4j-admin",
-            "database",
-            "import",
-            "full",
-            f"--nodes=NODE=/import/v_headers.v,/import/{vertex_file_name}",
-            f"--relationships=EDGE=/import/e_headers.e,/import/{edge_file_name}",
-            "--delimiter=U+0020",
-            "--trim-strings=true",
-            "--overwrite-destination=true",
-            "--expand-commands",
-        ],
-        stderr=True,
-        stdin=True,
-        stdout=True,
-        tty=True,
-        _preload_content=False,
-    )
+        start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+        api_instance = client.CoreV1Api()
+        resp = stream(
+            api_instance.connect_get_namespaced_pod_exec,
+            "server-1-0",
+            "default",
+            command=[
+                "neo4j-admin",
+                "database",
+                "import",
+                "full",
+                f"--nodes=NODE=/import/v_headers.v,/import/{vertex_file_name}",
+                f"--relationships=EDGE=/import/e_headers.e,/import/{edge_file_name}",
+                "--delimiter=U+0020",
+                "--trim-strings=true",
+                "--overwrite-destination=true",
+                "--expand-commands",
+            ],
+            stderr=True,
+            stdin=True,
+            stdout=True,
+            tty=True,
+            _preload_content=False,
+        )
 
-    if not resp.is_open():
-        exit(-1)
+        if not resp.is_open():
+            exit(-1)
 
-    while resp.is_open():
-        resp.update(timeout=1)
-        if resp.peek_stdout():
-            print("%s" % resp.read_stdout())
-        if resp.peek_stderr():
-            print("%s" % resp.read_stderr())
-    resp.close()
-    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+        while resp.is_open():
+            resp.update(timeout=1)
+            if resp.peek_stdout():
+                print("%s" % resp.read_stdout())
+            if resp.peek_stderr():
+                print("%s" % resp.read_stderr())
+        resp.close()
+        end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
 
-    api = client.CoreV1Api()
-    for i in range(1, num_instances + 1):
-        wait_for_pod(api, f"server-{i}-0")
-        print(f"server {i} running")
+        api = client.CoreV1Api()
+        for i in range(1, num_instances + 1):
+            wait_for_pod(api, f"server-{i}-0")
+            print(f"server {i} running")
 
-    api = client.AppsV1Api()
-    for i in range(1, num_instances + 1):
-        wait_for_neo_stateful_set_ready(api, i)
-        print(f"server {i} stateful set running")
+        api = client.AppsV1Api()
+        for i in range(1, num_instances + 1):
+            wait_for_neo_stateful_set_ready(api, i)
+            print(f"server {i} stateful set running")
 
-    neo = connect_neo4j(config)
-    session = neo.session()
+        neo = connect_neo4j(config)
+        session = neo.session()
 
-    servers = session.run("SHOW SERVERS")
-    for s in servers:
-        if s["address"].startswith("server-1"):
-            server_id = s["name"]
-            break
+        servers = session.run("SHOW SERVERS")
+        for s in servers:
+            if s["address"].startswith("server-1"):
+                server_id = s["name"]
+                break
 
-    session.run(f"CREATE DATABASE neo4j OPTIONS {{existingData: 'use', existingDataSeedInstance: '{server_id}'}}")
-    wait_for_db_ready(session)
+        session.run(f"CREATE DATABASE neo4j OPTIONS {{existingData: 'use', existingDataSeedInstance: '{server_id}'}}")
+        wait_for_db_ready(session)
 
-    retry = True
-    while retry:
-        try:
-            gds = connect_gds(config)
-            retry = False
-        except:
-            time.sleep(1)
-            print("retrying")
-    gds.run_cypher("DROP INDEX node_index IF EXISTS")
-    gds.run_cypher("CREATE INDEX node_index FOR (n:NODE) ON (n.vertex)")
+        retry = True
+        while retry:
+            try:
+                gds = connect_gds(config)
+                retry = False
+            except:
+                time.sleep(1)
+                print("retrying")
+        gds.run_cypher("DROP INDEX node_index IF EXISTS")
+        gds.run_cypher("CREATE INDEX node_index FOR (n:NODE) ON (n.vertex)")
 
     # import names according to projection
-    if config["dataset"]["weights"]:
-        G, result = gds.graph.project(
-            "my-graph", ["NODE"], {"EDGE": {"properties": ["weight"]}}
-        )
+    if bool(config["load_data"]):
+        if config["dataset"]["weights"]:
+            G = gds.graph.project(
+                "my-graph", ["NODE"], {"EDGE": {"properties": ["weight"]}}
+            )
+        else:
+            G = gds.graph.project("my-graph", ["NODE"], "EDGE")
     else:
-        G, result = gds.graph.project("my-graph", ["NODE"], "EDGE")
+        G = gds.graph.get("my-graph")
 
     tot_vertex = int(gds.run_cypher(
         """MATCH (n:NODE)
@@ -351,10 +355,11 @@ def main():
 
     [gds, G, duration, vertex, edge] = load_data(gds, config, vertex_file, edge_file)
 
-    for entry in id_algos:
-        log_metrics_sql(
-            conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes
-        )
+    if bool(config["load_data"]):
+        for entry in id_algos:
+            log_metrics_sql(
+                conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes
+            )
 
     func_d = {"bfs": bfs, "pr": pr, "wcc": wcc, "cdlp": cdlp, "lcc": lcc, "sssp": sssp}
 

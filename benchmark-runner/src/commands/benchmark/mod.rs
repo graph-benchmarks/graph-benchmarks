@@ -159,6 +159,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     log_file: "/attached/log".into(),
                     nodes: n_nodes,
                 },
+                load_data: true,
             };
 
             for dataset in &config.benchmark.datasets {
@@ -170,7 +171,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 );
 
                 println!("Benchmarking {dataset} {} times", config.benchmark.repeat);
-                for _ in 0..config.benchmark.repeat {
+                for repeat_num in 0..config.benchmark.repeat {
                     let run_ids = get_run_ids(&mut connection, n_nodes, algos.len()).await?;
                     run_ids
                         .iter()
@@ -201,6 +202,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>()
                         .join(",");
+                    cfg.load_data = repeat_num == 0;
                     info!("{cfg:#?}");
 
                     start_bench(

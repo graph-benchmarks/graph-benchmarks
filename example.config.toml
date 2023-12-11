@@ -20,6 +20,7 @@ cpu = "8"
 memory = "8192"
 #
 
+# Graph platform specific arguments
 [setup.graph_platform_args.graphscope]
 cpu = 4
 memory = "2Gi"

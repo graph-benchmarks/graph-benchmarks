@@ -40,6 +40,7 @@ pub struct DriverConfig<'a> {
     pub postgres: PostgresConfig<'a>,
     pub platform: HashMap<String, String>,
     pub dataset: DatasetConfig,
+    pub load_data: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

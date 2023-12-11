@@ -287,7 +287,8 @@ def main():
     warmup_edge_file = "warm_up_dataset/test-bfs-undirected.e"
     [warmup_g, _, _] = load_data_with_pd(config, sess, warmup_vertex_file, warmup_edge_file)
 
-    [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
+    if bool(config["load_data"]):
+        [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
 
     # firing up warmup runs
     func_d = {'bfs': bfs, 'pr': pr, 'wcc': wcc, 'cdlp': cdlp, 'lcc': lcc, 'sssp': sssp}
@@ -297,8 +298,9 @@ def main():
     lf.write("warmup session finished")
 
     entry: (int, str)
-    for entry in id_algos:
-        log_metrics_sql(conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes)
+    if bool(config["load_data"]):
+        for entry in id_algos:
+            log_metrics_sql(conn, entry[0], entry[1], dataset, "loading", duration, vertex, edge, nodes)
 
     for entry in id_algos:
         lf.write("starting " + entry[1] + " with id " + str(entry[0]))
