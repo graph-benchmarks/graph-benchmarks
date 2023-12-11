@@ -90,14 +90,26 @@ function add_execution_code(result_code_file, code) {
   fs.writeFileSync(result_code_file, new_rf);
 }
 
-async function wait_until_exec_result() {
+async function wait_until_exec_result(output_file) {
   while (True) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    exec_result = get_execution_result();
+    exec_result = get_execution_result(output_file);
     if (exec_result[0] === "done") {
       return exec_result[1];
     }
   }
+}
+
+async function get_duration(arango_host, arango_port, arango_user, res_code_file, output_file){
+  // get run_id
+  const code = get_execution_result(output_file)[0];
+  // insert run_id into script
+  add_execution_code(res_code_file, code);
+  const res_command = `< pregel_result.js > ${output_file}`
+  run_arangosh(arango_host, arango_port, arango_user, res_command)
+  const dur = await wait_until_exec_result(output_file);
+  remove_execution_code(res_code_file, code);
+  return dur;
 }
 
 async function bfs() {}
@@ -106,48 +118,36 @@ async function pr(
   arango_host,
   arango_port,
   arango_user,
-  output_file,
   res_code_file,
+  output_file
 ) {
   const command = `< pregel_pr.js > ${output_file}`;
   run_arangosh(arango_host, arango_port, arango_user, command);
-  const code = get_execution_result(output_file)[0];
-  add_execution_code(res_code_file, code);
-  const dur = wait_until_exec_result();
-  remove_execution_code(res_code_file, code);
-  return dur;
-}
+  return await get_duration(arango_host, arango_port, arango_user, res_code_file, output_file)
+  }
 
 async function wcc(
   arango_host,
   arango_port,
   arango_user,
-  output_file,
   res_code_file,
+  output_file
 ) {
   const command = `< pregel_wcc.js > ${output_file}`;
   run_arangosh(arango_host, arango_port, arango_user, command);
-  const code = get_execution_result(output_file)[0];
-  add_execution_code(res_code_file, code);
-  const dur = wait_until_exec_result();
-  remove_execution_code(res_code_file, code);
-  return dur;
-}
+  return await get_duration(arango_host, arango_port, arango_user, res_code_file, output_file)
+  }
 
 async function cdlp(
   arango_host,
   arango_port,
   arango_user,
-  output_file,
   res_code_file,
+  output_file
 ) {
   const command = `< pregel_cdlp.js > ${output_file}`;
   run_arangosh(arango_host, arango_port, arango_user, command);
-  const code = get_execution_result(output_file)[0];
-  add_execution_code(res_code_file, code);
-  const dur = wait_until_exec_result();
-  remove_execution_code(res_code_file, code);
-  return dur;
+  return await get_duration(arango_host, arango_port, arango_user, res_code_file, output_file)
 }
 
 async function lcc() {}
@@ -156,16 +156,12 @@ async function sssp(
   arango_host,
   arango_port,
   arango_user,
-  output_file,
   res_code_file,
+  output_file,
 ) {
   const command = `< pregel_sssp.js > ${output_file}`;
   run_arangosh(arango_host, arango_port, arango_user, command);
-  const code = get_execution_result(output_file)[0];
-  add_execution_code(res_code_file, code);
-  const dur = wait_until_exec_result();
-  remove_execution_code(res_code_file, code);
-  return dur;
+  return await get_duration(arango_host, arango_port, arango_user, res_code_file, output_file)
 }
 
 async function main() {
