@@ -1,0 +1,42 @@
+neo4j:
+  name: "neo"
+  minimumClusterSize: 3
+  resources:
+    cpu: "0.5"
+    memory: "2Gi"
+  password: "graph_benchmarks"
+  acceptLicenseAgreement: "yes"
+  plugins: [""]
+  edition: enterprise
+  offlineMaintenanceModeEnabled: false
+
+env:
+  NEO4J_PLUGINS: '["graph-data-science"]'
+
+config:
+  dbms.security.procedures.unrestricted: "*"
+
+volumes:
+  data:
+    labels:
+        data: "true"
+    mode: dynamic
+    dynamic:
+      storageClassName: local-path
+      requests:
+        storage: 10Gi
+  import:
+    mode: volumeClaimTemplate
+    volumeClaimTemplate:
+      storageClassName: nfs
+      accessModes:
+        - ReadWriteMany
+      resources:
+        requests:
+          storage: 10Gi
+      nfs:
+        path: /bench-storage
+        server: 10.43.30.215
+
+podSpec:
+  podAntiAffinity: false

@@ -1,0 +1,28 @@
+- name: Copy neo4j import pv
+  when: item == "1"
+  ansible.builtin.copy:
+    src: tmp/import-pv.yaml
+    dest: $HOME/temp-neo/import-pv.yaml
+    mode: 'g+w'
+
+- name: Copy neo4j chart values
+  ansible.builtin.copy:
+    src: tmp/values-{{ item }}.yaml
+    dest: $HOME/temp-neo/values-{{ item }}.yaml
+    mode: 'g+w'
+
+- name: Create pv
+  when: item == "1"
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    namespace: default
+    src: $HOME/temp-neo/import-pv.yaml
+
+- name: Install neo4j
+  kubernetes.core.helm:
+    name: server-{{ item }}
+    release_namespace: default
+    chart_ref: neo4j/neo4j
+    values_files:
+      - temp-neo/values-{{ item }}.yaml

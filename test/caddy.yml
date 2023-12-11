@@ -1,0 +1,42 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: caddy-service
+  namespace: default
+spec:
+  selector:
+    app: caddy
+  ports:
+    - name: tcp-31000
+      port: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "caddy"
+  namespace: default
+  labels:
+    app: "caddy"
+spec:
+  containers:
+  - name: caddy
+    image: caddy
+    args: ["caddy", "file-server", "--root", "/attached"]
+    env:
+      - name: USER
+        value: graph_benchmarks
+      - name: PASSWORD
+        value: graph_benchmarks
+      - name: HOST
+        value: caddy
+    ports:
+    - containerPort: 80
+    volumeMounts:
+    - name: bench-storage
+      mountPath: /attached
+  volumes:
+    - name: bench-storage
+      nfs:
+        server: 10.43.255.108
+        path: /bench-storage
+  restartPolicy: Always

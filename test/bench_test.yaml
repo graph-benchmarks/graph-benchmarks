@@ -1,13 +1,13 @@
 kind: ConfigMap
 apiVersion: v1
 metadata:
-  name: graphscope-bench
+  name: neo4j-bench
   namespace: default
 data:
   config.yaml: |
     config:
-      ids: "12"
-      algos: "bfs"
+      ids: 1,2,3
+      algos: bfs,pr,cdlp
       log_file: /attached/log
       nodes: 2
     postgres:
@@ -17,32 +17,35 @@ data:
       user: postgres
       ps: graph_benchmarks
     platform:
-      host: coordinator-service-graphscope
-      port: 59001
+      host: neo-lb-neo4j
+      user: neo4j
+      password: graph_benchmarks
+      neo_instances: '3'
+      port: '7687'
     dataset:
-      vertex: /attached/datagen-7_5-fb.v
-      edges: /attached/datagen-7_5-fb.e
-      name: datagen-7_5-fb
-      weights: false
+      vertex: /attached/test-sssp-undirected.v
+      edges: /attached/test-sssp-undirected.e
+      name: test
       directed: false
+      weights: false
 ---
 apiVersion: v1
 kind: Pod
 metadata:
-  name: graphscope-bench
+  name: neo4j-bench
   namespace: default
 spec:
   serviceAccount: admin-user
   containers:
-    - name: graphscope-bench
+    - name: neo4j-bench
       command: ["sh", "-c", "while { sleep 3600; } do :; done"]
-      image: 192.168.121.181:30000/benches/graphscope:latest
+      image: 192.168.121.48:30000/benches/neo4j:latest
       volumeMounts:
         - name: bench-storage
           mountPath: /attached
         - name: scratch
           mountPath: /scratch
-        - name: graphscope-bench
+        - name: neo4j-bench
           mountPath: /cfg
           readOnly: true
       ports:
@@ -51,13 +54,13 @@ spec:
     - name: bench-storage
       nfs:
         path: /bench-storage
-        server: 10.43.230.0
+        server: 10.43.146.21
         readOnly: false
     - name: scratch
       nfs:
         path: /scratch
-        server: 10.43.230.0
+        server: 10.43.146.21
         readOnly: false
-    - name: graphscope-bench
+    - name: neo4j-bench
       configMap:
-        name: graphscope-bench
+        name: neo4j-bench

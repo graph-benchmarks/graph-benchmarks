@@ -45,11 +45,13 @@ def bfs(url:str):
 def pr(url:str):
     query = "hugegraph.traversal().V().pageRank().with_(PageRank.propertyName,'pageRank').values('pageRank')"
     r = requests.get(f"{url}?gremlin={query}")
+    print(r.js)
 
 # weakly connected components
 def wcc(url:str):
     query = "hugegraph.traversal().V().connectedComponent().group().by('componentId')"
     r = requests.get(f"{url}?gremlin={query}")
+    print(r)
 
 # community detection using label propagation
 def cdlp(url:str):
@@ -116,6 +118,8 @@ def main():
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
 
     duration = end_time - start_time
+    duration = duration // 1000000
+    print(id_, algo, dataset, "runtime", duration, vertex, edge)
     log_metrics_sql(conn, id_, algo, dataset, "runtime", duration, vertex, edge)
 
     lf.close()

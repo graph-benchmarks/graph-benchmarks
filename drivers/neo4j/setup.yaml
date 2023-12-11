@@ -1,0 +1,17 @@
+- name: Neo4j helm setup
+  hosts: master
+  tasks:
+    - name: Add neo4j helm repo
+      kubernetes.core.helm_repository:
+        name: neo4j
+        repo_url: https://helm.neo4j.com/neo4j
+
+    - name: Create temp-neo directory
+      ansible.builtin.file:
+        path: $HOME/temp-neo
+        state: directory
+        mode: '0755'
+
+    - name: Install each neo4j node
+      ansible.builtin.include_tasks: install.yaml
+      with_sequence: count={{ num_nodes }}

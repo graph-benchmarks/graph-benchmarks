@@ -110,16 +110,29 @@ pub async fn copy_generated_graphs(verbose: bool, connect_args: &PlatformInfo) -
     .await
 }
 
-pub async fn remove_driver(driver: &str, connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
+pub async fn remove_graph_platform(
+    driver: &str,
+    connect_args: &PlatformInfo,
+    extra_vars: Vec<String>,
+    verbose: bool,
+) -> Result<()> {
+    let mut args = vec![
+        "remove.yaml",
+        "--private-key",
+        &connect_args.ssh_key,
+        "-i",
+        "../../k3s/inventory/master-hosts.yaml",
+    ];
+
+    let extra_vars_str = extra_vars.join(" ");
+    if extra_vars.len() > 0 {
+        args.push("--extra-vars");
+        args.push(&extra_vars_str);
+    }
+
     command_print(
         "ansible-playbook",
-        &[
-            "remove.yaml",
-            "--private-key",
-            &connect_args.ssh_key,
-            "-i",
-            "../../k3s/inventory/master-hosts.yaml",
-        ],
+        &args,
         verbose,
         [
             &format!("Removing driver {driver}"),

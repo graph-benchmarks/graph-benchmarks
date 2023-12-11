@@ -1,0 +1,7 @@
+- name: UnInstall neo4j
+  kubernetes.core.helm:
+    name: server-{{ item }}
+    release_namespace: default
+    chart_ref: neo4j/neo4j
+    state: absent
+    wait: true

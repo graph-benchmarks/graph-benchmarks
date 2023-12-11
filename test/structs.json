@@ -1,0 +1,105 @@
+{
+  "version": "2.0",
+  "structs": [
+    {
+      "id": "1",
+      "skip": false,
+      "input": {
+        "type": "FILE",
+        "path": "/attached/wiki-talk.v",
+        "file_filter": {
+          "extensions": [
+            "*"
+          ]
+        },
+        "format": "TEXT",
+        "delimiter": " ",
+        "date_format": "yyyy-MM-dd HH:mm:ss",
+        "time_zone": "GMT+8",
+        "skipped_line": {
+          "regex": "(^#|^//).*|"
+        },
+        "compression": "NONE",
+        "header": [
+          "name"
+        ],
+        "charset": "UTF-8",
+        "list_format": {
+          "start_symbol": "[",
+          "elem_delimiter": "|",
+          "end_symbol": "]"
+        }
+      },
+      "vertices": [
+        {
+          "label": "src",
+          "skip": false,
+          "id": null,
+          "unfold": false,
+          "field_mapping": {},
+          "value_mapping": {},
+          "selected": [],
+          "ignored": [],
+          "null_values": [
+            ""
+          ],
+          "update_strategies": {}
+        }
+      ],
+      "edges": []
+    },
+    {
+      "id": "2",
+      "skip": false,
+      "input": {
+        "type": "FILE",
+        "path": "/attached/wiki-talk.e",
+        "file_filter": {
+          "extensions": [
+            "*"
+          ]
+        },
+        "format": "TEXT",
+        "delimiter": " ",
+        "date_format": "yyyy-MM-dd HH:mm:ss",
+        "time_zone": "GMT+8",
+        "skipped_line": {
+          "regex": "(^#|^//).*|"
+        },
+        "compression": "NONE",
+        "header": [
+          "src",
+          "dest"
+        ],
+        "charset": "UTF-8",
+        "list_format": null
+      },
+      "vertices": [],
+      "edges": [
+        {
+          "label": "rel",
+          "skip": false,
+          "source": [
+            "src"
+          ],
+          "unfold_source": false,
+          "target": [
+            "dest"
+          ],
+          "unfold_target": false,
+          "field_mapping": {
+            "src": "name",
+            "dest": "name"
+          },
+          "value_mapping": {},
+          "selected": [],
+          "ignored": [],
+          "null_values": [
+            ""
+          ],
+          "update_strategies": {}
+        }
+      ]
+    }
+  ]
+}

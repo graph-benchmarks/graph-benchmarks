@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     env,
     net::IpAddr,
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use anyhow::Result;
@@ -29,10 +29,9 @@ use k8s_openapi::api::{
 use kube::{
     api::{DeleteParams, ListParams, PostParams, WatchParams},
     core::{ObjectMeta, WatchEvent},
-    runtime::{watcher, WatchStreamExt},
-    Api, Client, ResourceExt,
+    Api, Client,
 };
-use tokio::{fs, net::TcpStream, spawn, time::sleep};
+use tokio::{fs, net::TcpStream, spawn};
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tracing::info;
 
@@ -126,8 +125,8 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
             let runs_start_point = runs.len();
 
             info!("{:#?}", config.setup.graph_platform_args);
-            driver_config
-                .set_node_config(
+            let extra_vars = driver_config
+                .scale_service(
                     n_nodes,
                     config
                         .setup
@@ -138,17 +137,21 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         .map(|x| x.to_owned()),
                 )
                 .await?;
-            setup_graph_platform(&driver, &connect_args, cli.verbose).await?;
-            let service_ip = driver_config.get_service_ip().await?;
+            setup_graph_platform(
+                &driver,
+                &connect_args,
+                n_nodes,
+                extra_vars.clone(),
+                cli.verbose,
+            )
+            .await?;
+            let platform_config = driver_config.get_platform_config(n_nodes).await?;
             let pod_ids = driver_config.metrics_pod_ids().await?;
             info!("pod ids: {pod_ids:?}");
 
             let mut cfg = DriverConfig {
                 postgres: POSTGRES_CONFIG,
-                platform: PlatformConfig {
-                    host: service_ip.0,
-                    port: service_ip.1,
-                },
+                platform: platform_config,
                 dataset: DatasetConfig::default(),
                 config: RunConfig {
                     ids: "".into(),
@@ -211,10 +214,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
 
                     let metrics_ip = format!("http://{}:30001", connect_args.master_ip);
                     for i in 0..run_ids.len() {
-                        let pb = progress(&format!(
-                            "Benchmarking ({} on {dataset})",
-                            algos[i]
-                        ));
+                        let pb = progress(&format!("Benchmarking ({} on {dataset})", algos[i]));
                         let start = Instant::now();
                         match ws_stream.try_next().await? {
                             Some(msg) => {
@@ -259,7 +259,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 nfs_ip.clone(),
             )
             .await?;
-            remove_driver(&driver, &connect_args, cli.verbose).await?;
+            remove_graph_platform(&driver, &connect_args, extra_vars, cli.verbose).await?;
         }
     }
 
@@ -360,17 +360,27 @@ async fn new_cluster_node_count(n_nodes: usize) -> Result<()> {
 async fn setup_graph_platform(
     name: &str,
     connect_args: &PlatformInfo,
+    nodes: usize,
+    extra_vars: Vec<String>,
     verbose: bool,
 ) -> Result<()> {
+    let mut args = vec![
+        "setup.yaml",
+        "--private-key",
+        &connect_args.ssh_key,
+        "-i",
+        "../../k3s/inventory/master-hosts.yaml",
+    ];
+
+    let extra_vars_str = extra_vars.join(" ");
+    if extra_vars.len() > 0 {
+        args.push("--extra-vars");
+        args.push(&extra_vars_str);
+    }
+
     command_print(
         "ansible-playbook",
-        &[
-            "setup.yaml",
-            "--private-key",
-            &connect_args.ssh_key,
-            "-i",
-            "../../k3s/inventory/master-hosts.yaml",
-        ],
+        &args,
         verbose,
         [
             &format!("Installing {name}"),
@@ -384,49 +394,11 @@ async fn setup_graph_platform(
 
     let start = Instant::now();
     let pb = progress(&format!("Waiting for {name} to be ready"));
-    let client = Client::try_default().await?;
 
-    let mut ready = false;
-    let status_check = |pod: Pod| {
-        if let Some(status) = pod.status {
-            if let Some(cs) = status.container_statuses {
-                if cs.len() > 0 && cs[0].ready {
-                    return true;
-                }
-            }
-        }
-        false
-    };
-
-    let pod_label = base_driver::get_driver_config(name)
+    base_driver::get_driver_config(name)
         .unwrap()
-        .pod_ready_label();
-
-    sleep(Duration::from_secs(10)).await;
-
-    let pods: Api<Pod> = Api::default_namespaced(client.clone());
-    if let Ok(pod_list) = pods.list(&ListParams::default().labels(pod_label)).await {
-        for pod in pod_list.items {
-            ready = status_check(pod);
-            if ready {
-                break;
-            }
-        }
-    }
-
-    if !ready {
-        let api = Api::<Pod>::default_namespaced(client);
-        let wc = watcher::Config::default().labels(pod_label);
-
-        let mut res = watcher(api, wc).applied_objects().default_backoff().boxed();
-
-        while let Ok(Some(p)) = res.try_next().await {
-            info!("got status update {}", p.name_any());
-            if status_check(p) {
-                break;
-            }
-        }
-    }
+        .wait_for_service_ready(nodes)
+        .await?;
 
     finish_progress(
         "Platform ready",

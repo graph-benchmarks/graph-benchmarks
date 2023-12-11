@@ -1,0 +1,43 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: ftp-service
+  namespace: default
+spec:
+  selector:
+    app: ftp
+  ports:
+    - name: tcp-21
+      port: 21
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "ftp"
+  namespace: default
+  labels:
+    app: "ftp"
+spec:
+  containers:
+  - name: ftp
+    image: mikatux/ftps-server
+    env:
+      - name: USER
+        value: graph_benchmarks
+      - name: PASSWORD
+        value: graph_benchmarks
+      - name: HOST
+        value: ftp
+    ports:
+    - containerPort: 20
+    - containerPort: 21
+    - containerPort: 22
+    volumeMounts:
+    - name: bench-storage
+      mountPath: /home/graph_benchmarks
+  volumes:
+    - name: bench-storage
+      nfs:
+        server: 10.43.255.108
+        path: /bench-storage
+  restartPolicy: Always

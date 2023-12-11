@@ -1,0 +1,12 @@
+- name: Neo4j helm remoev
+  hosts: master
+  tasks:
+    - name: UnInstall each neo4j node
+      ansible.builtin.include_tasks: uninstall.yaml
+      with_sequence: count={{ num_nodes }}
+
+    - name: Remove PVCs
+      ansible.builtin.shell: kubectl delete persistentvolumeclaim -l app=neo
+
+    - name: Remove import-pv
+      ansible.builtin.shell: kubectl delete persistentvolume neo4j-import

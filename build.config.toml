@@ -1,2 +1,2 @@
-drivers = ["graphscope"]
+drivers = ["graphscope", "neo4j"]
 providers = ["terraform", "vagrant"]

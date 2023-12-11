@@ -4,14 +4,18 @@ import psycopg
 import psycopg.sql as sql
 import yaml
 import time
+import os
 import graphdatascience as GDS
-import pandas as pd
+from neo4j import GraphDatabase, Session as NeoSession
+from kubernetes import client, config as KubeConfig
+from kubernetes.stream import stream
 
 
 # check if table exists on postgres
 def check_table(conn: psycopg.Connection) -> None:
     cur = conn.cursor()
-    query = sql.SQL( "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'gn_test') AS table_existence"
+    query = sql.SQL(
+        "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'gn_test') AS table_existence"
     )
     ret = cur.execute(query)
 
@@ -48,157 +52,188 @@ def log_metrics_sql(
     conn.commit()
     cur.close()
 
-
-def full_load(gds: GDS.GraphDataScience, queries, params):
-    df_v: pd.DataFrame = params[0]
-    df_e: pd.DataFrame = params[1]
-    add_nodes_query = queries[0]
-    add_relations_query = queries[1]
-
-    rows = df_v.to_dict("records")
-    tot_vertex = gds.run_cypher(add_nodes_query, params={"rows": rows}).iloc[0, 0]
-
-    rows = df_e.to_dict("records")
-    tot_edges = gds.run_cypher(add_relations_query, params={"rows": rows}).iloc[0, 0]
-
-    return tot_vertex, tot_edges
-
-
-def batch_load(gds: GDS.GraphDataScience, queries, params):
-    batch_size = 5000
-
-    ve_count = [0, 0]
-    for i in range(len(params)):
-        dft: pd.DataFrame = params[i]
-        query: str = queries[i]
-        count = 0
-        itr = len(dft) // batch_size + 1
-
-        for j in range(itr):
-            start_index = j * batch_size
-            end_index = min(j * batch_size + batch_size, len(dft))
-            df_load: pd.DataFrame = dft.iloc[start_index:end_index, :]
-            rows = df_load.to_dict("records")
-            count += gds.run_cypher(query, params={"rows": rows}).iloc[0, 0]
-
-        ve_count[i] = count
-    return ve_count
-
-
-def csv_load(gds: GDS.GraphDataScience, queries, params):
-    # for this to work file has to be a csv with no header
-    add_nodes_query = queries[0]
-    add_relations_query = queries[1]
-
-    gds.run_cypher(add_nodes_query)
-    gds.run_cypher(add_relations_query)
-    
-    tot_vertex = gds.run_cypher("""MATCH (n:node)
-                                RETURN count(n) as total""").iloc[0,0]
-    tot_edges = gds.run_cypher("""MATCH ()-[r:EDGE]->()
-                               RETURN count(r) as total""").iloc[0,0]
-
-    return tot_vertex, tot_edges
-
-
-def load_data(
-    gds: GDS.GraphDataScience, config, vertex_file: str, edge_file: str, ltype: int
-):
-    """
-    0 = full_load
-    1 = batch_load
-    2 = csv_load
-    Returns graph, loading time, vertex number, edge_number
-    """
-    # v = loader.Loader(f"file://{vertex_file}", header_row=False)
-    # e = loader.Loader(f"file://{edge_file}", header_row=False)
-
-    df_v = None
-    df_e = None
-
-    if not ltype == 2:
-        df_v = pd.read_csv(vertex_file, header=None, names=["vertex"])
-
-        if not config["dataset"]["weights"]:
-            df_e = pd.read_csv(edge_file, header=None, names=["src", "dst"], sep=" ")
-        else:
-            df_e = pd.read_csv(
-                edge_file, header=None, names=["src", "dst", "weight"], sep=" "
-            )
-
-    if ltype == 2:
-        add_nodes_query = """LOAD CSV FROM '{}' AS line FIELDTERMINATOR ' '
-        CALL {{
-         WITH line
-         CREATE (:node {{nid: line[0]}})
-        }} IN TRANSACTIONS OF 100000 rows;""".format(
-            vertex_file
+def wait_for_neo_stateful_set_ready(api_instance, idx):
+    ready = False
+    while not ready:
+        api_response = api_instance.read_namespaced_stateful_set_status(
+            name=f"server-{idx}", namespace="default"
         )
+        if api_response.status.available_replicas == api_response.status.replicas:
+            ready = True
 
-        d_str = "-" #"-" if not config["dataset"]["directed"] else "->"
-        w_str = " {weight: line[2]}" if config["dataset"]["weights"] else ""
-                
-        #print("index")
-
-        add_relations_query = """LOAD CSV FROM '{}' AS line FIELDTERMINATOR ' ' 
-        CALL {{
-         WITH line
-         MATCH (s:node {{nid: line[0]}})
-         MATCH (d:node {{nid: line[1]}})
-         MERGE (s)-[:EDGE{}]{}(d)
-        }} IN TRANSACTIONS OF 10000 ROWS;""".format(
-            edge_file, w_str, d_str
+def wait_for_pod(api_instance, pod_name):
+    while True:
+        resp = stream(
+            api_instance.connect_get_namespaced_pod_exec,
+            pod_name,
+            "default",
+            command=["ls"],
+            stderr=True,
+            stdin=True,
+            stdout=True,
+            tty=True,
+            _preload_content=False,
         )
-        queries = (add_nodes_query, add_relations_query)
+            
+        if not resp.is_open():
+            time.sleep(1)
+            continue
 
-    else:
-        add_nodes_query = """UNWIND $rows AS row
-        MERGE (:node {nid: row.vertex})
-        RETURN count(*) as total"""
+        data = ""
+        while resp.is_open():
+            resp.update(timeout=1)
+            if resp.peek_stdout():
+                data += resp.read_stdout()
+            if resp.peek_stderr():
+                data += resp.read_stderr()
+        resp.close()
+        if len(data) != 0:
+            break
 
-        d_str = "-" if not config["dataset"]["directed"] else "->"
-        w_str = " {weight: row.weight}" if config["dataset"]["weights"] else ""
+def wait_for_db_ready(session: NeoSession):
+    while True:
+        time.sleep(1)
+        dbs = session.run("SHOW DATABASES")
+        currCount = 0
+        for db in dbs:
+            if db["name"] == "neo4j" and db["currentStatus"] != "online":
+                currCount += 1
+        if currCount == 0:
+            break
 
-        add_relations_query = """UNWIND $rows AS row
-        UNWIND row.src AS nodeID
-        UNWIND row.dst AS destID
-        MATCH (s:node {{nid: nodeID}})
-        MATCH (d:node {{nid: destID}})
-        MERGE (s)-[:EDGE{}]{}(d)
-        RETURN count(*) as total""".format(
-            w_str, d_str
-        )
+def load_data(gds: GDS.GraphDataScience, config, vertex_file: str, edge_file: str):
+    neo = connect_neo4j(config)
+    session = neo.session()
+    session.run(f"DROP DATABASE neo4j")
 
-        queries = (add_nodes_query, add_relations_query)
+    vertex_file_name = os.path.basename(vertex_file)
+    edge_file_name = os.path.basename(edge_file)
 
-    load_lst = [full_load, batch_load, csv_load]
+    os.rename(f"{vertex_file}", f"/attached/import/{vertex_file_name}")
+    os.rename(f"{edge_file}", f"/attached/import/{edge_file_name}")
 
-    #start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    #[tot_vertex, tot_edges] = load_lst[ltype](gds, queries, (df_v, df_e))
-    #end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-   
-    add_index ="""CREATE INDEX node_index FOR (n:node) ON (n.nid)"""
-    gds.run_cypher(add_index)
+    with open(f"/attached/import/{edge_file_name}", "r") as f:
+        data = f.readline()
+        add_weights = len(data.split(" ")) == 3
+
+    with open("/attached/import/v_headers.v", "w+") as f:
+        f.write("vertex:ID(vertex)\n")
+        f.close()
+
+    with open("/attached/import/e_headers.e", "w+") as f:
+        f.write(":START_ID(vertex) :END_ID(vertex)")
+        if add_weights:
+            f.write(" weight:float")
+        f.write("\n")
+        f.close()
+
+    status = os.system("helm repo add neo4j https://helm.neo4j.com/neo4j")
+    if os.WEXITSTATUS(status) != 0:
+        sys.exit(-1)
+
+    num_instances = int(config["platform"]["neo_instances"])
+    KubeConfig.load_incluster_config()
+    api = client.CoreV1Api()
+    for i in range(1, num_instances + 1):
+        wait_for_pod(api, f"server-{i}-0")
+
+    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    api_instance = client.CoreV1Api()
+    resp = stream(
+        api_instance.connect_get_namespaced_pod_exec,
+        "server-1-0",
+        "default",
+        command=[
+            "neo4j-admin",
+            "database",
+            "import",
+            "full",
+            f"--nodes=NODE=/import/v_headers.v,/import/{vertex_file_name}",
+            f"--relationships=EDGE=/import/e_headers.e,/import/{edge_file_name}",
+            "--delimiter=U+0020",
+            "--trim-strings=true",
+            "--overwrite-destination=true",
+            "--expand-commands",
+        ],
+        stderr=True,
+        stdin=True,
+        stdout=True,
+        tty=True,
+        _preload_content=False,
+    )
+
+    if not resp.is_open():
+        exit(-1)
+
+    while resp.is_open():
+        resp.update(timeout=1)
+        if resp.peek_stdout():
+            print("%s" % resp.read_stdout())
+        if resp.peek_stderr():
+            print("%s" % resp.read_stderr())
+    resp.close()
+    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+
+    api = client.CoreV1Api()
+    for i in range(1, num_instances + 1):
+        wait_for_pod(api, f"server-{i}-0")
+        print(f"server {i} running")
+
+    api = client.AppsV1Api()
+    for i in range(1, num_instances + 1):
+        wait_for_neo_stateful_set_ready(api, i)
+        print(f"server {i} stateful set running")
+
+    neo = connect_neo4j(config)
+    session = neo.session()
+
+    servers = session.run("SHOW SERVERS")
+    for s in servers:
+        if s["address"].startswith("server-1"):
+            server_id = s["name"]
+            break
+
+    session.run(f"CREATE DATABASE neo4j OPTIONS {{existingData: 'use', existingDataSeedInstance: '{server_id}'}}")
+    wait_for_db_ready(session)
+
+    retry = True
+    while retry:
+        try:
+            gds = connect_gds(config)
+            retry = False
+        except:
+            time.sleep(1)
+            print("retrying")
+    gds.run_cypher("DROP INDEX node_index IF EXISTS")
+    gds.run_cypher("CREATE INDEX node_index FOR (n:NODE) ON (n.vertex)")
 
     # import names according to projection
-    if not config["dataset"]["directed"]:
-        G, result = gds.graph.project("my-graph", ["node"], "EDGE")
-    else:
+    if config["dataset"]["weights"]:
         G, result = gds.graph.project(
-            "my-graph", ["node"], {"EDGE": {"properties": ["weight"]}}
+            "my-graph", ["NODE"], {"EDGE": {"properties": ["weight"]}}
         )
-    duration = 0 
-    tot_vertex = gds.run_cypher("""MATCH (n:node)
-                                RETURN count(n) as total""").iloc[0,0]
-    tot_edges = gds.run_cypher("""MATCH ()-[r:EDGE]->()
-                               RETURN count(r) as total""").iloc[0,0]
-    return G, duration, tot_vertex, tot_edges
+    else:
+        G, result = gds.graph.project("my-graph", ["NODE"], "EDGE")
+
+    tot_vertex = int(gds.run_cypher(
+        """MATCH (n:NODE)
+                                RETURN count(n) as total"""
+    ).iloc[0, 0])
+    tot_edges = int(gds.run_cypher(
+        """MATCH ()-[r:EDGE]->()
+                               RETURN count(r) as total"""
+    ).iloc[0, 0])
+
+    os.rename(f"/attached/import/{vertex_file_name}", f"{vertex_file}")
+    os.rename(f"/attached/import/{edge_file_name}", f"{edge_file}")
+
+    return gds, G, end_time - start_time, tot_vertex, tot_edges
 
 
 def bfs(config, gds: GDS.GraphDataScience, G) -> int:
-    source_id = gds.find_node_id(["node"], {"nid": 1})
+    source_id = gds.find_node_id(["NODE"], {"vertex": "1"})
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    gds.bfs.stream(G, sourceNode=source_id)
+    gds.bfs.stats(G, sourceNode=source_id)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
@@ -206,26 +241,23 @@ def bfs(config, gds: GDS.GraphDataScience, G) -> int:
 def pr(config, gds: GDS.GraphDataScience, G) -> int:
     # figure out what max round is?
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    gds.pageRank.stream(G)
+    gds.pageRank.stats(G, maxIterations=20)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
 
 # weakly connected components
 def wcc(config, gds: GDS.GraphDataScience, G) -> int:
-    start_time = 0
-    end_time = 0
-    if not config["dataset"]["directed"]:
-        start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-        gds.wcc.stream(G)
-        end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
+    gds.wcc.stats(G)
+    end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
 
 # community detection using label propagation
 def cdlp(config, gds: GDS.GraphDataScience, G) -> int:
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    gds.labelPropagation.stream(G)
+    gds.labelPropagation.stats(G, maxIterations=10)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
@@ -233,24 +265,41 @@ def cdlp(config, gds: GDS.GraphDataScience, G) -> int:
 # local cluster coefficient
 def lcc(config, gds: GDS.GraphDataScience, G) -> int:
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    gds.localClusteringCoefficient.stream(G)
+    gds.localClusteringCoefficient.stats(G)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
 
 # single source shortest paths
 def sssp(config, gds: GDS.GraphDataScience, G) -> int:
-    source_id = gds.find_node_id(["node"], {"nid": 1})
+    source_id = gds.find_node_id(["NODE"], {"vertex": "1"})
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     if config["dataset"]["weights"]:
-        gds.allShortestPaths.dijkstra.stream(
+        gds.allShortestPaths.dijkstra.stats(
             G, sourceNode=source_id, relationshipWeightProperty="weight"
         )
     else:
-        gds.allShortestPaths.dijkstra.stream(G, sourceNode=source_id)
+        gds.allShortestPaths.dijkstra.stats(G, sourceNode=source_id)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
+def connect_neo4j(config):
+    neo_host = config["platform"]["host"]
+    neo_port = config["platform"]["port"]
+    neo_user = config["platform"]["user"]
+    neo_password = config["platform"]["password"]
+    return GraphDatabase.driver(
+        f"neo4j://{neo_host}:{neo_port}", auth=(neo_user, neo_password), database="system"
+    )
+
+def connect_gds(config):
+    neo_host = config["platform"]["host"]
+    neo_port = config["platform"]["port"]
+    neo_user = config["platform"]["user"]
+    neo_password = config["platform"]["password"]
+    return GDS.GraphDataScience(
+        f"neo4j://{neo_host}:{neo_port}", auth=(neo_user, neo_password)
+    )
 
 def main():
     # functional arguments position for the program
@@ -265,13 +314,10 @@ def main():
     ids = [int(x.strip()) for x in config["config"]["ids"].split(",")]
     algos = [x.strip() for x in config["config"]["algos"].split(",")]
     id_algos = list(zip(ids, algos))
-    nodes = config["config"]["nodes"]
+    nodes = int(config["config"]["nodes"])
 
     log_file = config["config"]["log_file"]
     lf = open(log_file, "w+")
-
-    neo_host = config["platform"]["host"]
-    neo_port = config["platform"]["port"]
 
     pg_host = config["postgres"]["host"]
     pg_db = config["postgres"]["db"]
@@ -293,19 +339,17 @@ def main():
         quit(1)
 
     try:
-        gds = GDS.GraphDataScience(f"neo4j://{neo_host}:{neo_port}")
+        gds = connect_gds(config)
     except:
         lf.write("Error: could not connect to neo4j cluster\n")
         lf.close()
         conn.close()
         quit(1)
 
+
     check_table(conn)
 
-    [G, duration, vertex, edge] = load_data(gds, config, vertex_file, edge_file, 2)
-
-    # vertex = graph_vertex_count(g)
-    # edge = graph_edge_count(g)
+    [gds, G, duration, vertex, edge] = load_data(gds, config, vertex_file, edge_file)
 
     for entry in id_algos:
         log_metrics_sql(
@@ -318,9 +362,9 @@ def main():
         id_ = entry[0]
         algo = entry[1]
 
-        #requests.post("http://notifier:8080/starting")
+        requests.post("http://notifier:8080/starting")
         dur = func_d[algo](config, gds, G)
-        #requests.post("http://notifier:8080/stopping")
+        requests.post("http://notifier:8080/stopping")
 
         if dur > 0:
             log_metrics_sql(
@@ -330,5 +374,6 @@ def main():
     lf.close()
     gds.close()
     conn.close()
+
 
 main()

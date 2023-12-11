@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -6,12 +8,6 @@ pub struct Run {
     pub algorithm: String,
     pub nodes: usize,
     pub run_id: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlatformConfig {
-    pub host: String,
-    pub port: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +38,7 @@ pub struct DriverConfig<'a> {
     pub config: RunConfig,
     #[serde(borrow)]
     pub postgres: PostgresConfig<'a>,
-    pub platform: PlatformConfig,
+    pub platform: HashMap<String, String>,
     pub dataset: DatasetConfig,
 }
 

@@ -17,6 +17,9 @@
         name: kubernetes-dashboard
         release_namespace: default
         chart_ref: kubernetes-dashboard/kubernetes-dashboard
+        set_values:
+          - value: metricsScraper.enabled=true
+            value_type: string
 
     - name: Create cluster role binding
       kubernetes.core.k8s:
