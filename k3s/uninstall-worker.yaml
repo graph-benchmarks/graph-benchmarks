@@ -1,0 +1,6 @@
+- name: Uninstall worker node
+  hosts: workers
+  tasks:
+    - name: Uninstall worker
+      become: true
+      ansible.builtin.shell: /usr/local/bin/k3s-agent-uninstall.sh

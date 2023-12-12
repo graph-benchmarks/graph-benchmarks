@@ -1,7 +1,10 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, net::IpAddr};
 
 use anyhow::Result;
 use common::{command::command_print, provider::PlatformInfo};
+use tokio::fs;
+
+use crate::commands::setup::Item;
 
 pub async fn join_all_nodes(connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
     command_print(
@@ -140,6 +143,40 @@ pub async fn remove_graph_platform(
             &format!("Removed {driver}"),
         ],
         &format!("drivers/{}", driver),
+        HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]),
+    )
+    .await
+}
+
+pub async fn remove_node(node: IpAddr, connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
+    let c = HashMap::from([(
+        "workers",
+        Item {
+            hosts: HashMap::from([(node.to_string(), ())]),
+            vars: HashMap::new(),
+        },
+    )]);
+    fs::write(
+        format!("k3s/inventory/remove-node.yaml"),
+        serde_yaml::to_string(&c)?,
+    )
+    .await?;
+    command_print(
+        "ansible-playbook",
+        &[
+            "uninstall-worker.yaml",
+            "--private-key",
+            &connect_args.ssh_key,
+            "-i",
+            "inventory/remove-node.yaml",
+        ],
+        verbose,
+        [
+            &format!("Removing node from the cluster"),
+            &format!("Could not node from the cluster"),
+            &format!("Removed node from the cluster"),
+        ],
+        "k3s",
         HashMap::from([("ANSIBLE_HOST_KEY_CHECKING", "False")]),
     )
     .await

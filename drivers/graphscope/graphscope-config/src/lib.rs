@@ -4,10 +4,7 @@ use anyhow::Result;
 use common::driver_config::DriverConfig;
 use common::traverse_yaml_mut;
 use futures_util::{StreamExt, TryStreamExt};
-use k8s_openapi::api::{
-    apps::v1::ReplicaSet,
-    core::v1::{Pod, Service},
-};
+use k8s_openapi::api::core::v1::{Pod, Service};
 use kube::{
     api::ListParams,
     runtime::{watcher, WatchStreamExt},
@@ -98,12 +95,16 @@ impl DriverConfig for Graphscope {
 
     async fn wait_for_service_ready(&self, _: usize) -> Result<()> {
         let client = Client::try_default().await?;
-        let ss: Api<ReplicaSet> = Api::default_namespaced(client);
+        let ss: Api<Pod> = Api::default_namespaced(client);
         let wc = watcher::Config::default().labels("graphscope.components=coordinator");
 
-        let status_check = |ss: ReplicaSet| {
-            if let Some(status) = ss.status {
-                return status.ready_replicas.unwrap() == 1;
+        let status_check = |pod: Pod| {
+            if let Some(status) = pod.status {
+                if let Some(cs) = status.container_statuses {
+                    if cs.len() > 0 && cs[0].ready {
+                        return true;
+                    }
+                }
             }
             false
         };

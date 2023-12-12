@@ -116,7 +116,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
         connect_async(format!("ws://{}:30003/ws", connect_args.master_ip)).await?;
 
     for n_nodes in config.setup.node_configs {
-        new_cluster_node_count(n_nodes).await?;
+        new_cluster_node_count(n_nodes, &connect_args, cli.verbose).await?;
         for driver in &config.benchmark.drivers {
             let driver_config = match base_driver::get_driver_config(driver) {
                 Some(d) => d,
@@ -202,20 +202,21 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>()
                         .join(",");
-                    cfg.load_data = repeat_num == 0;
-                    info!("{cfg:#?}");
-
-                    start_bench(
-                        &driver,
-                        &connect_args.master_ip,
-                        &cfg,
-                        nfs_ip.clone(),
-                        config.benchmark.debug.clone().unwrap_or_default().bench_ttl,
-                    )
-                    .await?;
 
                     let metrics_ip = format!("http://{}:30001", connect_args.master_ip);
                     for i in 0..run_ids.len() {
+                        cfg.load_data = repeat_num == 0;
+                        info!("{cfg:#?}");
+
+                        start_bench(
+                            &driver,
+                            &connect_args.master_ip,
+                            &cfg,
+                            nfs_ip.clone(),
+                            config.benchmark.debug.clone().unwrap_or_default().bench_ttl,
+                        )
+                        .await?;
+
                         let pb = progress(&format!("Benchmarking ({} on {dataset})", algos[i]));
                         let start = Instant::now();
                         match ws_stream.try_next().await? {
@@ -323,21 +324,26 @@ async fn wait_for_bench_delete() -> Result<()> {
     Ok(())
 }
 
-async fn new_cluster_node_count(n_nodes: usize) -> Result<()> {
+async fn new_cluster_node_count(
+    n_nodes: usize,
+    connect_args: &PlatformInfo,
+    verbose: bool,
+) -> Result<()> {
     let client = Client::try_default().await?;
     let api: Api<Node> = Api::all(client);
     let mut nodes = api.list(&ListParams::default()).await?;
+    let get_idx = |n: &str| {
+        if n.starts_with("worker-") {
+            n.split("worker-").last().unwrap().parse::<i32>().unwrap()
+        } else {
+            -1
+        }
+    };
+
     if nodes.items.len() > n_nodes {
         nodes.items.sort_by(|a, b| {
             let a_name = a.metadata.name.as_ref().unwrap();
             let b_name = b.metadata.name.as_ref().unwrap();
-            let get_idx = |n: &str| {
-                if n.starts_with("worker-") {
-                    n.split("worker-").last().unwrap().parse::<i32>().unwrap()
-                } else {
-                    -1
-                }
-            };
 
             get_idx(a_name).cmp(&get_idx(b_name))
         });
@@ -353,6 +359,12 @@ async fn new_cluster_node_count(n_nodes: usize) -> Result<()> {
         for node in delete_nodes {
             info!("Removing node {node}");
             api.delete(&node, &DeleteParams::default()).await?;
+            remove_node(
+                connect_args.worker_ips[get_idx(&node) as usize],
+                connect_args,
+                verbose,
+            )
+            .await?;
             println!("{} Removed node {node}", GREEN_TICK.to_string());
         }
     }

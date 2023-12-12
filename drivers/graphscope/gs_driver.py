@@ -287,8 +287,7 @@ def main():
     warmup_edge_file = "warm_up_dataset/test-bfs-undirected.e"
     [warmup_g, _, _] = load_data_with_pd(config, sess, warmup_vertex_file, warmup_edge_file)
 
-    if bool(config["load_data"]):
-        [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
+    [duration, g, vertex, edge] = load_data(config, sess, vertex_file, edge_file)
 
     # firing up warmup runs
     func_d = {'bfs': bfs, 'pr': pr, 'wcc': wcc, 'cdlp': cdlp, 'lcc': lcc, 'sssp': sssp}
