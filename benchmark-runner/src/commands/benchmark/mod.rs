@@ -7,8 +7,8 @@ use std::{
 
 use anyhow::Result;
 use common::{
-    command::{command_print, finish_progress, progress, GREEN_TICK},
-    config::parse_config,
+    command::{command_print, finish_progress, progress},
+    config::{parse_config, Config},
     exit,
     provider::PlatformInfo,
 };
@@ -96,7 +96,15 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     let client = Client::try_default().await?;
     let nodes: Api<Node> = Api::all(client);
     let nodes = nodes.list(&ListParams::default()).await?;
-    if nodes.items.len() != config.setup.node_configs[0] {
+    if nodes.items.len() != config.setup.node_configs[0]
+        && config
+            .benchmark
+            .debug
+            .clone()
+            .unwrap_or_default()
+            .skip_join_nodes
+            .unwrap_or(false)
+    {
         join_all_nodes(&connect_args, cli.verbose).await?;
     }
     start_metrics(&connect_args.master_ip.to_string()).await?;
@@ -115,8 +123,8 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
     let (mut ws_stream, _) =
         connect_async(format!("ws://{}:30003/ws", connect_args.master_ip)).await?;
 
-    for n_nodes in config.setup.node_configs {
-        new_cluster_node_count(n_nodes, &connect_args, cli.verbose).await?;
+    for n_nodes in config.setup.node_configs.clone() {
+        new_cluster_node_count(n_nodes, &connect_args, &config, cli.verbose).await?;
         for driver in &config.benchmark.drivers {
             let driver_config = match base_driver::get_driver_config(driver) {
                 Some(d) => d,
@@ -202,21 +210,20 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         .map(|x| x.to_string())
                         .collect::<Vec<String>>()
                         .join(",");
+                    cfg.load_data = repeat_num == 0;
+                    info!("{cfg:#?}");
+
+                    start_bench(
+                        &driver,
+                        &connect_args.master_ip,
+                        &cfg,
+                        nfs_ip.clone(),
+                        config.benchmark.debug.clone().unwrap_or_default().bench_ttl,
+                    )
+                    .await?;
 
                     let metrics_ip = format!("http://{}:30001", connect_args.master_ip);
                     for i in 0..run_ids.len() {
-                        cfg.load_data = repeat_num == 0;
-                        info!("{cfg:#?}");
-
-                        start_bench(
-                            &driver,
-                            &connect_args.master_ip,
-                            &cfg,
-                            nfs_ip.clone(),
-                            config.benchmark.debug.clone().unwrap_or_default().bench_ttl,
-                        )
-                        .await?;
-
                         let pb = progress(&format!("Benchmarking ({} on {dataset})", algos[i]));
                         let start = Instant::now();
                         match ws_stream.try_next().await? {
@@ -327,6 +334,7 @@ async fn wait_for_bench_delete() -> Result<()> {
 async fn new_cluster_node_count(
     n_nodes: usize,
     connect_args: &PlatformInfo,
+    config: &Config,
     verbose: bool,
 ) -> Result<()> {
     let client = Client::try_default().await?;
@@ -354,18 +362,23 @@ async fn new_cluster_node_count(
             .drain(..)
             .rev()
             .take(curr_nodes_len - n_nodes)
-            .map(|x| x.metadata.name.unwrap())
-            .collect::<Vec<String>>();
+            .collect::<Vec<_>>();
         for node in delete_nodes {
-            info!("Removing node {node}");
-            api.delete(&node, &DeleteParams::default()).await?;
+            let name = node.metadata.name.unwrap();
+            info!("Removing node {name}");
+            api.delete(&name, &DeleteParams::default()).await?;
             remove_node(
-                connect_args.worker_ips[get_idx(&node) as usize],
+                node.metadata
+                    .annotations
+                    .unwrap()
+                    .get("k3s.io/external-ip")
+                    .unwrap()
+                    .clone(),
                 connect_args,
+                config,
                 verbose,
             )
             .await?;
-            println!("{} Removed node {node}", GREEN_TICK.to_string());
         }
     }
     Ok(())

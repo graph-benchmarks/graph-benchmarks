@@ -5,6 +5,20 @@
       become: true
       ansible.builtin.shell: curl -sfL https://get.k3s.io | K3S_NODE_NAME=worker-{{ groups['workers'].index(inventory_hostname) }} K3S_URL=https://{{ master }}:6443 K3S_TOKEN={{ node_token }} sh -s - --node-external-ip {{ ansible_ssh_host }}
 
+    - name: Create a directory if it does not exist
+      become: true
+      ansible.builtin.file:
+        path: /etc/rancher/k3s
+        state: directory
+        mode: '0755'
+
+    - name: Copy k3s_registry.yaml
+      become: true
+      ansible.builtin.copy:
+        src: data/k3s_registry.yaml
+        dest: /etc/rancher/k3s/registries.yaml
+        mode: 'g+w'
+
     - name: Restart k3s-agent
       become: true
       ansible.builtin.systemd:

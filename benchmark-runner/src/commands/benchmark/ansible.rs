@@ -1,7 +1,7 @@
-use std::{collections::HashMap, net::IpAddr};
+use std::collections::HashMap;
 
 use anyhow::Result;
-use common::{command::command_print, provider::PlatformInfo};
+use common::{command::command_print, config::Config, provider::PlatformInfo};
 use tokio::fs;
 
 use crate::commands::setup::Item;
@@ -148,12 +148,24 @@ pub async fn remove_graph_platform(
     .await
 }
 
-pub async fn remove_node(node: IpAddr, connect_args: &PlatformInfo, verbose: bool) -> Result<()> {
+pub async fn remove_node(
+    node: String,
+    connect_args: &PlatformInfo,
+    config: &Config,
+    verbose: bool,
+) -> Result<()> {
     let c = HashMap::from([(
         "workers",
         Item {
             hosts: HashMap::from([(node.to_string(), ())]),
-            vars: HashMap::new(),
+            vars: HashMap::from([(
+                "ansible_user",
+                config
+                    .setup
+                    .host_username
+                    .clone()
+                    .unwrap_or("root".to_owned()),
+            )]),
         },
     )]);
     fs::write(

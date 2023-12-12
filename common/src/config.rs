@@ -50,11 +50,15 @@ pub struct Benchmark {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DebugOptions {
     pub bench_ttl: Option<i32>,
+    pub skip_join_nodes: Option<bool>,
 }
 
 impl Default for DebugOptions {
     fn default() -> Self {
-        Self { bench_ttl: Some(0) }
+        Self {
+            bench_ttl: Some(0),
+            skip_join_nodes: Some(false),
+        }
     }
 }
 
