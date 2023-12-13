@@ -14,6 +14,7 @@ pub struct Run {
 pub struct DatasetUserConfig {
     pub weights: bool,
     pub directed: bool,
+    pub start_vertex: usize
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
