@@ -168,10 +168,11 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                     nodes: n_nodes,
                 },
                 load_data: true,
+                drop_data: false,
             };
 
             for dataset in &config.benchmark.datasets {
-                let algos = config.benchmark.algorithms.clone().unwrap_or(
+                let mut algos = config.benchmark.algorithms.clone().unwrap_or(
                     ALGORITHMS
                         .iter()
                         .map(|x| x.to_string())
@@ -179,7 +180,16 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 );
 
                 println!("Benchmarking {dataset} {} times", config.benchmark.repeat);
+                let d: DatasetUserConfig = toml::from_str(
+                    &fs::read_to_string(format!("datasets/{dataset}/config.toml")).await?,
+                )?;
+                let skip_algos = d.skip_algos.unwrap_or_default();
+
                 for repeat_num in 0..config.benchmark.repeat {
+                    algos = algos
+                        .drain(..)
+                        .filter(|x| !skip_algos.contains(x))
+                        .collect();
                     let run_ids = get_run_ids(&mut connection, n_nodes, algos.len()).await?;
                     run_ids
                         .iter()
@@ -193,16 +203,13 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                             });
                         });
 
-                    let d: DatasetUserConfig = toml::from_str(
-                        &fs::read_to_string(format!("datasets/{dataset}/config.toml")).await?,
-                    )?;
-
                     cfg.dataset = DatasetConfig {
                         name: dataset.clone(),
                         vertex: format!("/attached/{dataset}.v"),
                         edges: format!("/attached/{dataset}.e"),
                         weights: d.weights,
                         directed: d.directed,
+                        start_vertex: d.start_vertex,
                     };
                     cfg.config.algos = algos.join(",");
                     cfg.config.ids = run_ids
@@ -211,6 +218,7 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                         .collect::<Vec<String>>()
                         .join(",");
                     cfg.load_data = repeat_num == 0;
+                    cfg.drop_data = repeat_num == config.benchmark.repeat - 1;
                     info!("{cfg:#?}");
 
                     start_bench(

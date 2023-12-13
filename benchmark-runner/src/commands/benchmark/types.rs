@@ -14,7 +14,8 @@ pub struct Run {
 pub struct DatasetUserConfig {
     pub weights: bool,
     pub directed: bool,
-    pub start_vertex: usize
+    pub start_vertex: usize,
+    pub skip_algos: Option<Vec<String>>,
 }
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
@@ -24,6 +25,7 @@ pub struct DatasetConfig {
     pub name: String,
     pub directed: bool,
     pub weights: bool,
+    pub start_vertex: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +44,7 @@ pub struct DriverConfig<'a> {
     pub platform: HashMap<String, String>,
     pub dataset: DatasetConfig,
     pub load_data: bool,
+    pub drop_data: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

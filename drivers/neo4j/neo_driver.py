@@ -210,22 +210,29 @@ def load_data(gds: GDS.GraphDataScience, config, vertex_file: str, edge_file: st
                 print("retrying")
         gds.run_cypher("DROP INDEX node_index IF EXISTS")
         gds.run_cypher("CREATE INDEX node_index FOR (n:NODE) ON (n.vertex)")
+        session.close()
+        time.sleep(10)
     else:
         start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
         end_time = start_time
 
+    time.sleep(10)
+
     # import names according to projection
-    # if bool(config["load_data"]):
-    if config["dataset"]["weights"]:
-        G = gds.graph.project(
-            "my-graph", ["NODE"], {"EDGE": {"properties": ["weight"]}}
-        )
-    else:
-        G = gds.graph.project("my-graph", ["NODE"], "EDGE")
+    if bool(config["load_data"]):
+        if config["dataset"]["weights"]:
+            G = gds.graph.project(
+                "my-graph", ["NODE"], {"EDGE": {"properties": ["weight"]}}
+            )
+        else:
+            G = gds.graph.project("my-graph", ["NODE"], "EDGE")
 
     if not config["dataset"]["directed"]:
         gds.graph.relationships.toUndirected("my-graph", "EDGE", "EDGE")
 
+    time.sleep(10)
+
+    # if not config["load_data"]:
     G = gds.graph.get("my-graph")
 
     tot_vertex = int(gds.run_cypher(
@@ -286,11 +293,11 @@ def sssp(config, gds: GDS.GraphDataScience, G) -> int:
     source_id = gds.find_node_id(["NODE"], {"vertex": str(config["dataset"]["start_vertex"])})
     start_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     if config["dataset"]["weights"]:
-        gds.allShortestPaths.dijkstra.stats(
+        gds.allShortestPaths.dijkstra.stream(
             G, sourceNode=source_id, relationshipWeightProperty="weight"
         )
     else:
-        gds.allShortestPaths.dijkstra.stats(G, sourceNode=source_id)
+        gds.allShortestPaths.dijkstra.stream(G, sourceNode=source_id)
     end_time = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     return end_time - start_time
 
@@ -382,7 +389,9 @@ def main():
             log_metrics_sql(
                 conn, id_, algo, dataset, "runtime", dur, vertex, edge, nodes
             )
-    gds.graph.drop(G)
+
+    if config["drop_data"]:
+        gds.graph.drop(G)
 
     lf.close()
     gds.close()
