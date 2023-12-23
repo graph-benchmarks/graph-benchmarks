@@ -1,0 +1,24 @@
+postgres:
+  user: postgres
+  ps: postgres
+  db: postgres
+  host: postgres
+  port: 5432
+
+platform:
+  user: root
+  host: arango
+  port: 8529 
+
+dataset:
+  name: i2
+  vertex: http://caddy/wiki-Talk.v
+  edges: http://caddy/wiki-Talk.e
+  directed: false
+  weights: false
+
+config:
+  ids: 1
+  algos: pr
+  nodes: 1
+  log_file: log.txt
