@@ -19,9 +19,8 @@ def generate_line_graph(
         select_log_id (string): the log id to use (not implemented).
         use_dataset (string): optional the dataset to use on each algorithm. Skip all others.
     """
-    
     data_groups = {}
-    algorithms = set()
+    algorithms = []
     prev_dataset = ""
     for row in data_rows:
         log_id, algo, dataset, time, workers = row
@@ -41,7 +40,8 @@ def generate_line_graph(
         elif use_dataset != dataset:
             continue
         
-        algorithms.add(algo)
+        if algo not in algorithms:
+            algorithms.append(algo)
         
         if algo not in data_groups:
             data_groups[algo] = {"workers": [], "time": []}
@@ -95,10 +95,10 @@ def generate_line_graph(
     ax.set_xticklabels(unique_workers)
 
     # Writing the graph to a file.
-    timestamp_str = datetime.now().strftime("%Y%m%d%H%M")
+    timestamp_str = datetime.now().strftime("%Y%m%d%H%M%S")
     output_filename = os.path.join(
         output_directory,
-        f"result-lines-{timestamp_str}.png"
+        f"result-lines-{timestamp_str}.svg"
         )
-    plt.savefig(output_filename)
+    plt.savefig(output_filename, format="svg")
     print(f"Graph saved to {output_filename}")

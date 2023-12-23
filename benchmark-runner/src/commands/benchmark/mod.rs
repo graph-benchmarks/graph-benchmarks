@@ -185,23 +185,24 @@ pub async fn run_benchmark(cli: &Cli) -> Result<()> {
                 )?;
                 let skip_algos = d.skip_algos.unwrap_or_default();
 
+                let run_ids = get_run_ids(&mut connection, n_nodes, algos.len()).await?;
+                run_ids
+                    .iter()
+                    .zip(algos.clone())
+                    .for_each(|(run_id, algo)| {
+                        runs.push(Run {
+                            run_id: *run_id,
+                            dataset: dataset.clone(),
+                            algorithm: algo.clone(),
+                            nodes: n_nodes,
+                        });
+                    });
+
                 for repeat_num in 0..config.benchmark.repeat {
                     algos = algos
                         .drain(..)
                         .filter(|x| !skip_algos.contains(x))
                         .collect();
-                    let run_ids = get_run_ids(&mut connection, n_nodes, algos.len()).await?;
-                    run_ids
-                        .iter()
-                        .zip(algos.clone())
-                        .for_each(|(run_id, algo)| {
-                            runs.push(Run {
-                                run_id: *run_id,
-                                dataset: dataset.clone(),
-                                algorithm: algo.clone(),
-                                nodes: n_nodes,
-                            });
-                        });
 
                     cfg.dataset = DatasetConfig {
                         name: dataset.clone(),

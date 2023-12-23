@@ -41,7 +41,7 @@ def main():
         print("connected to db...")
 
         # Query the data from the database.
-        query = "SELECT id, algo, dataset, avg(time), nodes as time FROM gn_test WHERE ID IN(" + select_log_ids + ") AND type='runtime' group by id, algo, dataset, nodes"
+        query = "SELECT id, algo, dataset, avg(time) as time, nodes FROM gn_test WHERE ID IN(" + select_log_ids + ") AND type='runtime' group by id, algo, dataset, nodes ORDER BY algo, nodes"
         cursor.execute(query)
         
         # Fetch the results and iterate over them. Group first per logged algorithm

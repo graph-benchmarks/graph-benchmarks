@@ -227,8 +227,6 @@ def load_data(gds: GDS.GraphDataScience, config, vertex_file: str, edge_file: st
         else:
             G = gds.graph.project("my-graph", ["NODE"], "EDGE")
 
-    if not config["dataset"]["directed"]:
-        gds.graph.relationships.toUndirected("my-graph", "EDGE", "EDGE")
 
     time.sleep(10)
 

@@ -52,7 +52,7 @@ def generate_histograms(data_rows, output_directory, select_log_ids):
         ax.barh(x + i * bar_width, times, height=bar_width, label=dataset)
 
     # Plot design.
-    ax.set_xlabel("Time")
+    ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Algorithms")
     ax.set_title(
         "Execution Time for Datasets per Algorithm",
@@ -68,7 +68,7 @@ def generate_histograms(data_rows, output_directory, select_log_ids):
     timestamp_str = datetime.now().strftime("%Y%m%d%H%M")
     output_filename = os.path.join(
         output_directory,
-        f"result-bar-{timestamp_str}.png"
+        f"result-bar-{timestamp_str}.svg"
         )
-    plt.savefig(output_filename)
+    plt.savefig(output_filename, format="svg")
     print(f"Graph saved to {output_filename}")

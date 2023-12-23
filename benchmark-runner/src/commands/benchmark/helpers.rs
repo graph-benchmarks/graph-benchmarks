@@ -136,20 +136,20 @@ async fn visualize(
 }
 
 pub async fn start_metrics(host_ip: &str) -> Result<()> {
-    _ = stop_pod_service("metrics").await;
+    _ = stop_pod_service("graph-metrics").await;
 
     let client = Client::try_default().await?;
     let pods: Api<Pod> = Api::default_namespaced(client.clone());
     let mut pod_spec = Pod::default();
-    pod_spec.metadata.name = Some("metrics".into());
-    pod_spec.metadata.labels = Some(BTreeMap::from([("app".into(), "metrics".into())]));
+    pod_spec.metadata.name = Some("graph-metrics".into());
+    pod_spec.metadata.labels = Some(BTreeMap::from([("app".into(), "graph-metrics".into())]));
     pod_spec.spec = Some(PodSpec {
         node_selector: Some(BTreeMap::from([(
             "node-role.kubernetes.io/master".into(),
             "true".into(),
         )])),
         containers: vec![Container {
-            name: "metrics".into(),
+            name: "graph-metrics".into(),
             args: Some(
                 vec![
                     "-psql-host",
@@ -181,10 +181,10 @@ pub async fn start_metrics(host_ip: &str) -> Result<()> {
 
     let service: Api<Service> = Api::default_namespaced(client);
     let mut service_spec = Service::default();
-    service_spec.metadata.name = Some("metrics".into());
+    service_spec.metadata.name = Some("graph-metrics".into());
     service_spec.metadata.namespace = Some("default".into());
     service_spec.spec = Some(ServiceSpec {
-        selector: Some(BTreeMap::from([("app".into(), "metrics".into())])),
+        selector: Some(BTreeMap::from([("app".into(), "graph-metrics".into())])),
         type_: Some("NodePort".into()),
         ports: Some(vec![ServicePort {
             port: 9090,
